@@ -104,7 +104,9 @@ struct MarkdownView: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Style.cell))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Style.border, lineWidth: 1))
         case .image(let alt, let url):
-            IssueImage(url: URL(string: imageSource ?? url), alt: alt)
+            // The markdown URL is stable; the signed one from the HTML changes
+            // with every response, so it is only used to load the image.
+            IssueImage(key: url, url: URL(string: imageSource ?? url), alt: alt)
                 .frame(maxWidth: imageMaxWidth ?? .infinity, alignment: .leading)
         case .rule:
             Rule()
@@ -156,17 +158,35 @@ struct MarkdownView: View {
     }
 }
 
+/// Loaded issue images, keyed by their markdown URL so that a refresh (which
+/// brings new signed URLs) doesn't load them again or shift the page.
+@MainActor
+final class IssueImageCache {
+    static let shared = IssueImageCache()
+    private let cache = NSCache<NSString, NSImage>()
+
+    func image(for key: String) -> NSImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    func store(_ image: NSImage, for key: String) {
+        cache.setObject(image, forKey: key as NSString)
+    }
+}
+
 /// An attached image in a framed box with a caption bar, as in the mockup.
 private struct IssueImage: View {
+    let key: String
     let url: URL?
     let alt: String
+    @State private var loaded: NSImage?
+    @State private var failed = false
 
     var body: some View {
         VStack(spacing: 0) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
+            Group {
+                if let image = loaded ?? IssueImageCache.shared.image(for: key) {
+                    Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
                         .frame(maxHeight: 260)
@@ -174,12 +194,13 @@ private struct IssueImage: View {
                         .onTapGesture { if let url { NSWorkspace.shared.open(url) } }
                         .help("Open image")
                         .accessibilityLabel(caption)
-                case .failure:
+                } else if failed {
                     status(symbol: "photo", text: "Image couldn’t be loaded")
-                default:
+                } else {
                     status(symbol: nil, text: "Loading image…")
                 }
             }
+            .task(id: key) { await load() }
             HStack(spacing: 5) {
                 Image(systemName: "photo")
                     .font(.system(size: 10))
@@ -202,6 +223,28 @@ private struct IssueImage: View {
     private var caption: String {
         if !alt.isEmpty { return alt }
         return url?.lastPathComponent ?? "Image"
+    }
+
+    private func load() async {
+        if let cached = IssueImageCache.shared.image(for: key) {
+            loaded = cached
+            return
+        }
+        guard let url else {
+            failed = true
+            return
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let image = NSImage(data: data) else {
+                failed = true
+                return
+            }
+            IssueImageCache.shared.store(image, for: key)
+            loaded = image
+        } catch {
+            if !Task.isCancelled { failed = true }
+        }
     }
 
     private func status(symbol: String?, text: String) -> some View {

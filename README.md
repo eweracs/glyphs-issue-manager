@@ -32,8 +32,14 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   lists, task lists, quotes, code and images. Images use the signed URLs that
   GitHub includes with each issue.
 
-The panel is read-only: replying, labelling and closing happen on GitHub
-(**Reply on GitHub**, **Open on GitHub**).
+- **Close and reopen issues.** **Close issue** closes as completed; its menu
+  also offers **Close as Not Planned**, as on GitHub. Closed issues show
+  **Reopen issue**. In the compact palette the button sits in the bar at the
+  bottom of an issue, in the split view next to **Open on GitHub**, and both
+  are in a row's context menu. This needs a sign-in (see below).
+
+Replying and labelling happen on GitHub (**Reply on GitHub**, **Open on
+GitHub**).
 
 ## Signing in
 
@@ -45,7 +51,9 @@ uses, in this order:
 2. your existing `gh` CLI login (`gh auth token`), if `gh` is installed.
 
 A fine-grained token with read-only access to **Issues** for your font
-repositories is enough. **Sign Out** removes the saved token and stops using
+repositories is enough to read them; to close and reopen issues it needs
+**Issues: Read and write** (a classic token needs the `repo` scope; a `gh`
+login has it). **Sign Out** removes the saved token and stops using
 the `gh` login until you choose **Use gh CLI Login** again. Responses are
 cached by ETag, so refreshes that find nothing new don't use up the limit.
 Issues refresh every five minutes while the panel is open, and when you return
@@ -70,7 +78,7 @@ and the architectures to build (default `arm64 x86_64`).
 ```
 Sources/IssueCore/   platform-independent, unit-tested with `swift test`
   GitRepository.swift   finds the repository and its GitHub remote from .git files
-  GitHubClient.swift    REST client: issues, comments, pagination, ETags, rate limits
+  GitHubClient.swift    REST client: issues, comments, close/reopen, pagination, ETags
   GitHubModels.swift    issue, comment, label and user models
   GlyphMentions.swift   glyph names in issue text; relation to the current glyph
   MarkdownBlocks.swift  block-level markdown parsing for issue bodies

@@ -364,6 +364,16 @@ struct IssueRow: View {
             if !mentions.isEmpty {
                 Button("Open Mentioned Glyphs in Edit Tab") { model.openGlyphs(mentions) }
             }
+            Divider()
+            if issue.isOpen {
+                Button("Close as Completed") { model.close(issue, reason: .completed) }
+                    .disabled(!model.canChangeIssues)
+                Button("Close as Not Planned") { model.close(issue, reason: .notPlanned) }
+                    .disabled(!model.canChangeIssues)
+            } else {
+                Button("Reopen Issue") { model.reopen(issue) }
+                    .disabled(!model.canChangeIssues)
+            }
         }
     }
 

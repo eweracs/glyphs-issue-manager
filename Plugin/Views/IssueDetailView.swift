@@ -14,6 +14,9 @@ struct IssueDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: compact ? 16 : 20) {
                     header
+                    if let error = model.actionError, error.number == issue.number {
+                        ActionErrorBanner(message: error.message) { model.actionError = nil }
+                    }
                     glyphs
                     MarkdownView(
                         markdown: issue.body,
@@ -30,8 +33,33 @@ struct IssueDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .id(issue.number)
+            if compact {
+                actionBar
+            }
         }
         .background(Style.content)
+    }
+
+    /// Compact palette: close or reopen, and reply on GitHub, always in reach.
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            IssueStateButton(issue: issue, model: model)
+            Spacer(minLength: 8)
+            Button {
+                model.openOnGitHub(issue)
+            } label: {
+                HStack(spacing: 3) {
+                    Text("Reply on GitHub")
+                    Image(systemName: "arrow.up.forward")
+                        .font(.system(size: 8.5, weight: .bold))
+                }
+            }
+            .buttonStyle(AccentLinkButtonStyle(size: 12, weight: .regular))
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 46)
+        .background(Style.chrome)
+        .overlay(alignment: .top) { Rule() }
     }
 
     private var navigationBar: some View {
@@ -93,17 +121,20 @@ struct IssueDetailView: View {
             }
             if !compact {
                 Spacer(minLength: 0)
-                Button {
-                    model.openOnGitHub(issue)
-                } label: {
-                    HStack(spacing: 5) {
-                        Text("Open on GitHub")
-                        Image(systemName: "arrow.up.forward")
-                            .font(.system(size: 9, weight: .bold))
+                HStack(spacing: 8) {
+                    IssueStateButton(issue: issue, model: model)
+                    Button {
+                        model.openOnGitHub(issue)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("Open on GitHub")
+                            Image(systemName: "arrow.up.forward")
+                                .font(.system(size: 9, weight: .bold))
+                        }
                     }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .fixedSize()
                 }
-                .buttonStyle(SecondaryButtonStyle())
-                .fixedSize()
             }
         }
     }
@@ -140,33 +171,38 @@ struct IssueDetailView: View {
         }
     }
 
+    /// Comments; the compact palette has its reply link in the action bar.
     @ViewBuilder
     private var comments: some View {
-        VStack(alignment: .leading, spacing: compact ? 12 : 14) {
-            if issue.comments > 0 {
-                HStack(spacing: 8) {
-                    SectionTitle(text: issue.comments == 1 ? "1 comment" : "\(issue.comments) comments")
-                    if model.loadingComments.contains(issue.number) {
-                        ProgressView().controlSize(.small)
+        if issue.comments > 0 || !compact {
+            VStack(alignment: .leading, spacing: compact ? 12 : 14) {
+                if issue.comments > 0 {
+                    HStack(spacing: 8) {
+                        SectionTitle(text: issue.comments == 1 ? "1 comment" : "\(issue.comments) comments")
+                        if model.loadingComments.contains(issue.number) {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                    ForEach(model.comments[issue.number] ?? []) { comment in
+                        CommentView(comment: comment, model: model, compact: compact)
                     }
                 }
-                ForEach(model.comments[issue.number] ?? []) { comment in
-                    CommentView(comment: comment, model: model, compact: compact)
+                if !compact {
+                    Button {
+                        model.openOnGitHub(issue)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrowshape.turn.up.left")
+                            Text(issue.comments > 0 ? "Reply on GitHub" : "Comment on GitHub")
+                        }
+                    }
+                    .buttonStyle(AccentLinkButtonStyle(size: 12, weight: .regular))
                 }
             }
-            Button {
-                model.openOnGitHub(issue)
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrowshape.turn.up.left")
-                    Text(issue.comments > 0 ? "Reply on GitHub" : "Comment on GitHub")
-                }
-            }
-            .buttonStyle(AccentLinkButtonStyle(size: 12, weight: .regular))
+            .padding(.top, compact ? 14 : 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Rule(color: Style.rowRule) }
         }
-        .padding(.top, compact ? 14 : 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .top) { Rule(color: Style.rowRule) }
     }
 
     private var meta: String {

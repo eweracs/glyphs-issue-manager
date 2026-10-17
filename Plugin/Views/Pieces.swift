@@ -40,18 +40,36 @@ struct GlyphChip: View {
 
 /// The issue-state mark from the mockup: a ring with a dot, a tick or a slash.
 struct StateIcon: View {
-    let issue: GitHubIssue
+    enum Kind {
+        case open, completed, notPlanned
+
+        init(_ issue: GitHubIssue) {
+            self = issue.isOpen ? .open : (issue.isNotPlanned ? .notPlanned : .completed)
+        }
+    }
+
+    let kind: Kind
     var size: CGFloat = 16
     var color: Color?
+
+    init(issue: GitHubIssue, size: CGFloat = 16, color: Color? = nil) {
+        self.init(kind: Kind(issue), size: size, color: color)
+    }
+
+    init(kind: Kind, size: CGFloat = 16, color: Color? = nil) {
+        self.kind = kind
+        self.size = size
+        self.color = color
+    }
 
     var body: some View {
         ZStack {
             Circle()
                 .strokeBorder(lineWidth: size * 0.094)
                 .padding(size * 0.06)
-            if issue.isOpen {
+            if kind == .open {
                 Circle().frame(width: size * 0.22, height: size * 0.22)
-            } else if issue.isNotPlanned {
+            } else if kind == .notPlanned {
                 Path { path in
                     path.move(to: CGPoint(x: size * 0.33, y: size * 0.67))
                     path.addLine(to: CGPoint(x: size * 0.67, y: size * 0.33))
@@ -69,12 +87,15 @@ struct StateIcon: View {
         .frame(width: size, height: size)
         .foregroundColor(color ?? defaultColor)
         .accessibilityElement()
-        .accessibilityLabel(issue.isOpen ? "Open" : (issue.isNotPlanned ? "Closed as not planned" : "Closed"))
+        .accessibilityLabel(kind == .open ? "Open" : (kind == .notPlanned ? "Closed as not planned" : "Closed"))
     }
 
     private var defaultColor: Color {
-        if issue.isOpen { return Style.openIcon }
-        return issue.isNotPlanned ? Style.notPlannedIcon : Style.closedIcon
+        switch kind {
+        case .open: return Style.openIcon
+        case .completed: return Style.closedIcon
+        case .notPlanned: return Style.notPlannedIcon
+        }
     }
 }
 

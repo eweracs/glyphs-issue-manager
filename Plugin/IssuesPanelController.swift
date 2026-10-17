@@ -54,7 +54,7 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
             guard let self, let panel = self.panel else { return }
             self.apply(wide ? Self.wideBar : Self.compactBar, to: panel)
         }
-        let hosting = NSHostingView(rootView: RootView(model: model, chrome: chrome))
+        let hosting = PanelHostingView(rootView: RootView(model: model, chrome: chrome))
         hosting.sizingOptions = []
         panel.contentView = hosting
         // After the hosting view is in place, which may otherwise set its own.
@@ -163,6 +163,15 @@ final class IssuesPanel: NSPanel {
         layoutTrafficLights()
     }
 
+    /// Become key first, so the click that focuses the panel also reaches the
+    /// row or button under it instead of being used up on focusing.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, !isKeyWindow, canBecomeKey {
+            makeKey()
+        }
+        super.sendEvent(event)
+    }
+
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(frameRect, display: flag)
         layoutTrafficLights()
@@ -189,6 +198,12 @@ final class IssuesPanel: NSPanel {
             if button.frame != buttonFrame { button.frame = buttonFrame }
         }
     }
+}
+
+/// Acts on the first click even while the panel isn't key, as palettes do;
+/// otherwise that click would only focus the panel.
+final class PanelHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// Title-bar measurements shared with the SwiftUI views, and the way back to

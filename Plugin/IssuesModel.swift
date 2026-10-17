@@ -41,6 +41,15 @@ final class IssuesModel: ObservableObject {
     @Published private(set) var comments: [Int: [GitHubComment]] = [:]
     @Published private(set) var loadingComments: Set<Int> = []
     @Published private(set) var tokenSource: TokenStore.Source?
+    /// Issues being closed or reopened right now.
+    @Published private(set) var updatingIssues: Set<Int> = []
+    /// The last close or reopen that failed, shown in that issue's detail.
+    @Published var actionError: ActionError?
+
+    struct ActionError: Equatable {
+        let number: Int
+        let message: String
+    }
 
     // MARK: Filters & selection
 
@@ -176,6 +185,8 @@ final class IssuesModel: ObservableObject {
         selectedLabels = []
         refreshError = nil
         lastSync = nil
+        updatingIssues = []
+        actionError = nil
         mentionCache.removeAll()
         if let newRepo {
             seen = Defaults.seenActivity(for: newRepo)
@@ -408,6 +419,55 @@ final class IssuesModel: ObservableObject {
 
     func select(_ number: Int?) {
         selectedIssueNumber = number
+    }
+
+    // MARK: - Closing and reopening
+
+    /// Closing needs a token; GitHub decides whether it may write issues.
+    var canChangeIssues: Bool { tokenSource != nil }
+
+    func close(_ issue: GitHubIssue, reason: CloseReason) {
+        guard let repo else { return }
+        let client = self.client
+        change(issue, in: repo) { try await client.close(issue: issue.number, in: repo, reason: reason) }
+    }
+
+    func reopen(_ issue: GitHubIssue) {
+        guard let repo else { return }
+        let client = self.client
+        change(issue, in: repo) { try await client.reopen(issue: issue.number, in: repo) }
+    }
+
+    private func change(_ issue: GitHubIssue, in repo: GitHubRepo, _ operation: @escaping () async throws -> GitHubIssue) {
+        guard !updatingIssues.contains(issue.number) else { return }
+        updatingIssues.insert(issue.number)
+        actionError = nil
+        Task { [weak self] in
+            do {
+                let updated = try await operation()
+                guard let self, repo == self.repo else { return }
+                if let index = self.issues.firstIndex(where: { $0.number == updated.number }) {
+                    self.issues[index] = updated
+                }
+                // Our own change isn't new activity.
+                self.markSeen(updated.number)
+            } catch {
+                guard let self, repo == self.repo else { return }
+                self.actionError = ActionError(number: issue.number, message: self.describeChangeError(error, repo: repo))
+            }
+            self?.updatingIssues.remove(issue.number)
+        }
+    }
+
+    private func describeChangeError(_ error: Error, repo: GitHubRepo) -> String {
+        switch error as? GitHubError {
+        case .forbidden(_)?, .notFound?:
+            return "Your GitHub token can’t change issues in \(repo). A fine-grained token needs Issues: Read and write; a classic token needs the repo scope."
+        case .unauthorized?:
+            return "GitHub rejected the token. Sign in again from the repository menu."
+        default:
+            return error.localizedDescription
+        }
     }
 
     // MARK: - Glyph mentions
