@@ -1,0 +1,435 @@
+import AppKit
+import SwiftUI
+
+// MARK: - Headers
+
+/// Repository, search and filters above the list in the compact palette (mockup A1).
+struct CompactHeader: View {
+    @ObservedObject var model: IssuesModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                RepositoryButton(model: model)
+                Spacer(minLength: 4)
+                if let branch = model.branch {
+                    BranchLabel(branch: branch)
+                }
+            }
+            SearchField(text: $model.searchText, placeholder: "Search issues or /glyphname")
+            ViewThatFits(in: .horizontal) {
+                filterRow(showsTitle: true)
+                filterRow(showsTitle: false)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 2)
+        .padding(.bottom, 10)
+    }
+
+    private func filterRow(showsTitle: Bool) -> some View {
+        let counts = model.counts
+        return HStack(spacing: 6) {
+            StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed)
+            GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: showsTitle)
+            Spacer(minLength: 0)
+            LabelFilterButton(model: model)
+        }
+    }
+}
+
+/// The title bar of the split layout (mockup B): the traffic lights, then the
+/// repository, filters, search and refresh in one row.
+struct WideTitleBar: View {
+    @ObservedObject var model: IssuesModel
+    @ObservedObject var chrome: WindowChrome
+    let width: CGFloat
+
+    var body: some View {
+        let counts = model.counts
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                RepositoryButton(model: model)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(Style.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .allowsHitTesting(false)
+            }
+            .frame(minWidth: 130, alignment: .leading)
+            .layoutPriority(1)
+            Spacer(minLength: 8)
+                .allowsHitTesting(false)
+            StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed)
+            GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: width >= 800 + glyphNameWidth)
+            LabelFilterButton(model: model)
+            // The search field gives up width before the repository name does.
+            SearchField(text: $model.searchText, placeholder: "Search")
+                .frame(minWidth: 110, idealWidth: 200, maxWidth: 200)
+            RefreshButton(model: model)
+        }
+        // Should the row ever be too wide, let it run off the right edge
+        // rather than slide under the traffic lights.
+        .padding(.leading, chrome.trafficLightsInset)
+        .padding(.trailing, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: chrome.titlebarHeight)
+        .clipped()
+        .background(WindowDragArea())
+    }
+
+    private var subtitle: String {
+        [model.fontURL?.lastPathComponent, model.branch].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// Approximate width of “/name” in the toggle (11 pt monospaced, capped at 96).
+    private var glyphNameWidth: CGFloat {
+        min(96, 6.6 * CGFloat((model.currentGlyph?.count ?? 1) + 1))
+    }
+}
+
+/// “owner/repo ⌄” — opens the repository and account menu.
+struct RepositoryButton: View {
+    @ObservedObject var model: IssuesModel
+
+    var body: some View {
+        PopUpMenuButton(items: menuItems) {
+            HStack(spacing: 6) {
+                Image(systemName: "book.closed")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Style.icon)
+                Text(model.repo?.description ?? "")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Style.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundColor(Style.secondaryText)
+            }
+            .padding(.vertical, 3)
+        }
+        .help(model.repoIsOverride ? "Chosen by hand for this font" : "Detected from the font’s git remote")
+        .accessibilityLabel("Repository \(model.repo?.description ?? "")")
+    }
+
+    private func menuItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = [
+            ActionMenuItem("Open Issues on GitHub") { model.openRepositoryOnGitHub() },
+            ActionMenuItem("New Issue on GitHub") { model.openNewIssueOnGitHub() },
+            .separator(),
+            ActionMenuItem("Choose Repository…") { model.chooseRepository() },
+        ]
+        if model.repoIsOverride {
+            items.append(ActionMenuItem("Use Detected Repository") { model.useDetectedRepository() })
+        }
+        items.append(.separator())
+        let status: String
+        switch model.tokenSource {
+        case .keychain?: status = "Signed in with a saved token"
+        case .gitHubCLI?: status = "Signed in through the gh CLI"
+        case nil: status = "Not signed in"
+        }
+        items.append(ActionMenuItem(status, enabled: false) {})
+        items.append(ActionMenuItem("Paste Token…") { model.pasteToken() })
+        if model.gitHubCLIAvailable, model.tokenSource != .gitHubCLI {
+            items.append(ActionMenuItem("Use gh CLI Login") { model.useGitHubCLI() })
+        }
+        if model.tokenSource != nil {
+            items.append(ActionMenuItem("Sign Out") { model.signOut() })
+        }
+        return items
+    }
+}
+
+struct BranchLabel: View {
+    let branch: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10.5))
+            Text(branch)
+                .lineLimit(1)
+        }
+        .font(.system(size: 11))
+        .foregroundColor(Style.secondaryText)
+        .help("Checked-out branch")
+    }
+}
+
+struct LabelFilterButton: View {
+    @ObservedObject var model: IssuesModel
+
+    var body: some View {
+        PopUpMenuButton(items: menuItems) {
+            Image(systemName: model.selectedLabels.isEmpty ? "tag" : "tag.fill")
+                .font(.system(size: 13))
+                .foregroundColor(model.selectedLabels.isEmpty ? Style.icon : .accentColor)
+                .frame(width: 28, height: 26)
+        }
+        .help(model.selectedLabels.isEmpty ? "Filter by label" : "Filtered by \(model.selectedLabels.sorted().joined(separator: ", "))")
+        .accessibilityLabel("Filter by label")
+    }
+
+    private func menuItems() -> [NSMenuItem] {
+        let labels = model.allLabels
+        guard !labels.isEmpty else { return [ActionMenuItem("No labels", enabled: false) {}] }
+        var items: [NSMenuItem] = labels.map { label in
+            ActionMenuItem(label.name, state: model.selectedLabels.contains(label.name) ? .on : .off) {
+                model.toggleLabel(label.name)
+            }
+        }
+        if !model.selectedLabels.isEmpty {
+            items.append(.separator())
+            items.append(ActionMenuItem("Show All Labels") { model.selectedLabels = [] })
+        }
+        return items
+    }
+}
+
+/// “Issues mentioning /a or a glyph built from it · 3 of 12   Clear”
+struct GlyphFilterBanner: View {
+    @ObservedObject var model: IssuesModel
+
+    var body: some View {
+        if model.currentGlyphOnly, let glyph = model.currentGlyph {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                (Text("Issues mentioning ")
+                    + Text("/" + glyph).font(.system(size: 11, design: .monospaced))
+                    + Text(" or a glyph built from it · ")
+                    + Text("\(model.filteredIssues.count) of \(model.stateTotal)").fontWeight(.semibold))
+                    .font(.system(size: 11.5))
+                    .foregroundColor(Style.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("Clear") { model.currentGlyphOnly = false }
+                    .buttonStyle(AccentLinkButtonStyle(size: 11.5, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Style.accentTint))
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+        }
+    }
+}
+
+// MARK: - List
+
+enum ListStyle {
+    /// Full-width rows divided by rules (compact palette).
+    case ruled
+    /// Inset rounded rows on a tinted column (split layout).
+    case sidebar
+}
+
+struct IssueListView: View {
+    @ObservedObject var model: IssuesModel
+    let style: ListStyle
+
+    var body: some View {
+        let issues = model.filteredIssues
+        VStack(spacing: 0) {
+            GlyphFilterBanner(model: model)
+            if issues.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: style == .sidebar ? 2 : 0) {
+                        ForEach(issues) { issue in
+                            IssueRow(issue: issue, model: model, style: style)
+                        }
+                    }
+                    .padding(.horizontal, style == .sidebar ? 6 : 0)
+                    .padding(.vertical, style == .sidebar ? 4 : 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(style == .sidebar ? Style.sidebar : Style.content)
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        let state = model.stateFilter == .open ? "open" : "closed"
+        if model.currentGlyphOnly, let glyph = model.currentGlyph {
+            EmptyStateView(
+                symbol: "checkmark",
+                tint: .positive,
+                title: "No \(state) issues mention /\(glyph)",
+                message: "None of the \(model.stateTotal) \(state) issues in \(model.repo?.description ?? "this repository") mention /\(glyph) or a glyph built from it."
+            ) {
+                Button("Show All Issues") { model.currentGlyphOnly = false }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+        } else if !model.searchText.isEmpty || !model.selectedLabels.isEmpty {
+            EmptyStateView(symbol: "magnifyingglass", title: "No matching issues", message: "Try another search or label.") {
+                Button("Clear Filters") {
+                    model.searchText = ""
+                    model.selectedLabels = []
+                }
+                .buttonStyle(SecondaryButtonStyle())
+            }
+        } else {
+            EmptyStateView(
+                symbol: "checkmark",
+                tint: .positive,
+                title: "No \(state) issues",
+                message: model.repo.map { "Nothing \(state) in \($0.description)." } ?? ""
+            ) {
+                EmptyView()
+            }
+        }
+    }
+}
+
+struct IssueRow: View {
+    let issue: GitHubIssue
+    @ObservedObject var model: IssuesModel
+    let style: ListStyle
+    @State private var hovering = false
+
+    var body: some View {
+        let mentions = model.mentions(of: issue)
+        let related = model.relatedMentions(of: issue)
+        let shown = Array(mentions.prefix(3))
+        let selected = style == .sidebar && model.selectedIssueNumber == issue.number
+
+        HStack(alignment: .top, spacing: 9) {
+            StateIcon(issue: issue)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(issue.title)
+                    .font(.system(size: 13, weight: selected ? .semibold : .medium))
+                    .foregroundColor(Style.text)
+                    .lineSpacing(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !issue.labels.isEmpty || !mentions.isEmpty {
+                    FlowLayout(spacing: 4, lineSpacing: 4) {
+                        ForEach(issue.labels) { LabelPill(label: $0) }
+                        ForEach(shown, id: \.self) { name in
+                            GlyphChip(name: name, isRelated: related.contains(name)) { model.openGlyphs([name]) }
+                        }
+                        if mentions.count > shown.count {
+                            Text("+\(mentions.count - shown.count)")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(Style.secondaryText)
+                                .frame(height: 16)
+                        }
+                    }
+                }
+                Text(meta)
+                    .font(.system(size: 11))
+                    .foregroundColor(Style.secondaryText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            HStack(spacing: 4) {
+                if model.hasNewActivity(issue) {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 7, height: 7)
+                        .help("New activity since you last opened this issue")
+                        .accessibilityLabel("New activity")
+                }
+                if issue.comments > 0 {
+                    Image(systemName: "bubble.left")
+                        .font(.system(size: 10.5))
+                    Text("\(issue.comments)")
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundColor(Style.secondaryText)
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, style == .sidebar ? 10 : 12)
+        .padding(.vertical, style == .sidebar ? 9 : 10)
+        .background(background(selected: selected))
+        .overlay(alignment: .bottom) {
+            if style == .ruled { Rule(color: Style.rowRule) }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { model.select(issue.number) }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { model.select(issue.number) }
+        .contextMenu {
+            Button("Open on GitHub") { model.openOnGitHub(issue) }
+            Button("Copy Link") { model.copyLink(issue) }
+            if !mentions.isEmpty {
+                Button("Open Mentioned Glyphs in Edit Tab") { model.openGlyphs(mentions) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func background(selected: Bool) -> some View {
+        switch style {
+        case .ruled:
+            Rectangle().fill(hovering ? Style.rowHover : Style.content)
+        case .sidebar:
+            RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? Style.selectedRow : (hovering ? Style.rowHover : Color.clear))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Style.accentRing : Color.clear, lineWidth: 1))
+                .shadow(color: .black.opacity(selected ? 0.06 : 0), radius: 1.5, y: 1)
+        }
+    }
+
+    private var meta: String {
+        let author = issue.user?.login
+        if !issue.isOpen, let closed = issue.closedAt {
+            return "#\(issue.number) · closed \(RelativeTime.string(for: closed))"
+        }
+        switch style {
+        case .ruled:
+            return "#\(issue.number) · opened \(RelativeTime.string(for: issue.createdAt))" + (author.map { " by \($0)" } ?? "")
+        case .sidebar:
+            return "#\(issue.number) · \(RelativeTime.string(for: issue.createdAt))" + (author.map { " · \($0)" } ?? "")
+        }
+    }
+}
+
+// MARK: - Footer
+
+struct ListFooter: View {
+    @ObservedObject var model: IssuesModel
+    var showsGitHubLink = true
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let error = model.refreshError {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundColor(.orange)
+                Text(error)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(error)
+            } else if let lastSync = model.lastSync {
+                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    Text("Synced \(RelativeTime.string(for: lastSync))")
+                }
+            }
+            Spacer(minLength: 4)
+            if showsGitHubLink {
+                Button(action: model.openRepositoryOnGitHub) {
+                    HStack(spacing: 3) {
+                        Text("Open on GitHub")
+                        Image(systemName: "arrow.up.forward")
+                            .font(.system(size: 8.5, weight: .bold))
+                    }
+                }
+                .buttonStyle(AccentLinkButtonStyle(size: 11, weight: .regular))
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundColor(Style.secondaryText)
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .overlay(alignment: .top) { Rule() }
+    }
+}
