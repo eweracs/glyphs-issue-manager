@@ -63,29 +63,32 @@ struct IssueDetailView: View {
     }
 
     private var navigationBar: some View {
-        HStack(spacing: 2) {
-            Button {
-                model.select(nil)
-            } label: {
-                HStack(spacing: 2) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Issues")
-                        .font(.system(size: 13))
+        ZStack {
+            HStack(spacing: 2) {
+                Button {
+                    model.select(nil)
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Issues")
+                            .font(.system(size: 13))
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.vertical, 4)
+                    .padding(.trailing, 6)
+                    .contentShape(Rectangle())
                 }
-                .foregroundColor(.accentColor)
-                .padding(.vertical, 4)
-                .padding(.trailing, 6)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .help("Back to the issue list")
+
+                Spacer()
+
+                IconButton(systemImage: "link", label: "Copy link", size: 13) { model.copyLink(issue) }
+                IconButton(systemImage: "arrow.up.forward.square", label: "Open on GitHub", size: 13) { model.openOnGitHub(issue) }
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
-            .help("Back to the issue list")
-
-            Spacer()
-
-            IconButton(systemImage: "link", label: "Copy link", size: 13) { model.copyLink(issue) }
-            IconButton(systemImage: "arrow.up.forward.square", label: "Open on GitHub", size: 13) { model.openOnGitHub(issue) }
+            IssueStepper(issue: issue, model: model)
         }
         .padding(.leading, 6)
         .padding(.trailing, 8)
@@ -97,6 +100,10 @@ struct IssueDetailView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: compact ? 8 : 9) {
+                if !compact {
+                    IssueStepper(issue: issue, model: model)
+                        .padding(.bottom, 2)
+                }
                 Text(issue.title)
                     .font(.system(size: compact ? 16 : 20, weight: .semibold))
                     .foregroundColor(Style.text)

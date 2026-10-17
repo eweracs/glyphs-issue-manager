@@ -32,6 +32,9 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   lists, task lists, quotes, code and images. Images use the signed URLs that
   GitHub includes with each issue.
 
+- **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes
+  to the issue numbered just below or above, open or closed, whatever the
+  filters.
 - **Close and reopen issues.** **Close issue** closes as completed; its menu
   also offers **Close as Not Planned**, as on GitHub. Closed issues show
   **Reopen issue**. In the compact palette the button sits in the bar at the

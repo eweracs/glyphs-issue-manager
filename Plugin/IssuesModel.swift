@@ -421,6 +421,16 @@ final class IssuesModel: ObservableObject {
         selectedIssueNumber = number
     }
 
+    /// The issue with the next lower (`step` < 0) or higher number, whatever
+    /// its state or the filters. Pull requests share the numbering and are
+    /// skipped.
+    func adjacentIssue(to number: Int, step: Int) -> GitHubIssue? {
+        if step < 0 {
+            return issues.filter { $0.number < number }.max { $0.number < $1.number }
+        }
+        return issues.filter { $0.number > number }.min { $0.number < $1.number }
+    }
+
     // MARK: - Closing and reopening
 
     /// Closing needs a token; GitHub decides whether it may write issues.

@@ -86,6 +86,51 @@ struct IssueStateButton: View {
     }
 }
 
+/// “‹ #9 ›”: steps to the issue numbered just below or above, whatever its
+/// state. ⌥⌘← and ⌥⌘→ do the same (arrow keys work on every keyboard layout
+/// and leave ⌘← to the search field).
+struct IssueStepper: View {
+    let issue: GitHubIssue
+    @ObservedObject var model: IssuesModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            step(-1)
+            Text(verbatim: "#\(issue.number)")
+                .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                .foregroundColor(Style.mutedText)
+                .frame(minWidth: 28)
+                .accessibilityHidden(true)
+            step(+1)
+        }
+        .frame(height: 24)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Style.segmentTrack))
+        .fixedSize()
+    }
+
+    private func step(_ direction: Int) -> some View {
+        let target = model.adjacentIssue(to: issue.number, step: direction)
+        let name = direction < 0 ? "Previous issue" : "Next issue"
+        let key: KeyEquivalent = direction < 0 ? .leftArrow : .rightArrow
+        let keyLabel = direction < 0 ? "⌥⌘←" : "⌥⌘→"
+        let help: String = target.map { "\(name): #\($0.number) \($0.title)  \(keyLabel)" } ?? "No \(name.lowercased())"
+        return Button {
+            if let target { model.select(target.number) }
+        } label: {
+            Image(systemName: direction < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(target == nil ? Style.secondaryText.opacity(0.45) : Style.text)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(target == nil)
+        .keyboardShortcut(key, modifiers: [.command, .option])
+        .help(help)
+        .accessibilityLabel(target.map { "\(name), #\($0.number)" } ?? "No \(name.lowercased())")
+    }
+}
+
 /// A failed close or reopen, shown above the issue.
 struct ActionErrorBanner: View {
     let message: String
