@@ -89,6 +89,29 @@ public final class GitHubClient {
         return try await paginated(first, maxPages: maxPages)
     }
 
+    /// An issue's comments and events, oldest first. Entries of shapes the
+    /// panel doesn't know are skipped.
+    public func timeline(for repo: GitHubRepo, issue number: Int, maxPages: Int = 10) async throws -> [TimelineEntry] {
+        let first = endpoint(repo, "issues/\(number)/timeline", query: ["per_page": "100"])
+        let entries: [Lenient<TimelineEntry>] = try await paginated(first, maxPages: maxPages)
+        return entries.compactMap(\.value)
+    }
+
+    /// The first line of a commit's message, from the commit's API URL.
+    public func commitMessage(at apiURL: URL) async throws -> String {
+        let (data, _) = try await get(apiURL)
+        struct Commit: Decodable {
+            struct Details: Decodable { let message: String }
+            let commit: Details
+        }
+        do {
+            let message = try JSONDecoder.gitHub.decode(Commit.self, from: data).commit.message
+            return message.components(separatedBy: .newlines).first ?? message
+        } catch {
+            throw GitHubError.decoding(String(describing: error))
+        }
+    }
+
     /// Closes an issue. Needs a token that may write issues.
     public func close(issue number: Int, in repo: GitHubRepo, reason: CloseReason) async throws -> GitHubIssue {
         try await updateIssue(number, in: repo, fields: ["state": "closed", "state_reason": reason.rawValue])

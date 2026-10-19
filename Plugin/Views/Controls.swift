@@ -86,6 +86,40 @@ struct StateSegments: View {
     }
 }
 
+/// A small two- or three-way switch (the activity's All | Comments).
+struct MiniSegments: View {
+    let options: [String]
+    @Binding var selection: Int
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                let active = index == selection
+                Button {
+                    selection = index
+                } label: {
+                    Text(options[index])
+                        .font(.system(size: 11, weight: active ? .semibold : .medium))
+                        .foregroundColor(active ? Style.text : Style.mutedText)
+                        .padding(.horizontal, 8)
+                        .frame(height: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(active ? Style.segmentActive : Color.clear)
+                                .shadow(color: .black.opacity(active ? 0.12 : 0), radius: 1, y: 1)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(active ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Style.segmentTrack))
+        .fixedSize()
+    }
+}
+
 /// The glyph-cell icon from the mockup: a rounded box with a dashed baseline.
 struct GlyphBoxIcon: View {
     var size: CGFloat = 13

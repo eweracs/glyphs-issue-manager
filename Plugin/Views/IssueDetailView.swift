@@ -178,38 +178,9 @@ struct IssueDetailView: View {
         }
     }
 
-    /// Comments; the compact palette has its reply link in the action bar.
-    @ViewBuilder
+    /// Comments and history, in time order (ActivityView.swift).
     private var comments: some View {
-        if issue.comments > 0 || !compact {
-            VStack(alignment: .leading, spacing: compact ? 12 : 14) {
-                if issue.comments > 0 {
-                    HStack(spacing: 8) {
-                        SectionTitle(text: issue.comments == 1 ? "1 comment" : "\(issue.comments) comments")
-                        if model.loadingComments.contains(issue.number) {
-                            ProgressView().controlSize(.small)
-                        }
-                    }
-                    ForEach(model.comments[issue.number] ?? []) { comment in
-                        CommentView(comment: comment, model: model, compact: compact)
-                    }
-                }
-                if !compact {
-                    Button {
-                        model.openOnGitHub(issue)
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrowshape.turn.up.left")
-                            Text(issue.comments > 0 ? "Reply on GitHub" : "Comment on GitHub")
-                        }
-                    }
-                    .buttonStyle(AccentLinkButtonStyle(size: 12, weight: .regular))
-                }
-            }
-            .padding(.top, compact ? 14 : 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .top) { Rule(color: Style.rowRule) }
-        }
+        ActivitySection(issue: issue, model: model, compact: compact)
     }
 
     private var meta: String {
@@ -217,40 +188,5 @@ struct IssueDetailView: View {
         let opened = "#\(issue.number) · \(author) opened \(RelativeTime.string(for: issue.createdAt))"
         if compact || issue.comments == 0 { return opened }
         return opened + " · " + (issue.comments == 1 ? "1 comment" : "\(issue.comments) comments")
-    }
-}
-
-private struct CommentView: View {
-    let comment: GitHubComment
-    @ObservedObject var model: IssuesModel
-    let compact: Bool
-
-    var body: some View {
-        HStack(alignment: .top, spacing: compact ? 9 : 10) {
-            Avatar(user: comment.user, size: compact ? 24 : 26)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(comment.user?.login ?? "ghost")
-                        .fontWeight(.semibold)
-                        .foregroundColor(Style.text)
-                    Text("· \(RelativeTime.string(for: comment.createdAt))")
-                        .foregroundColor(Style.secondaryText)
-                }
-                .font(.system(size: 12))
-                MarkdownView(
-                    markdown: comment.body,
-                    html: comment.bodyHTML,
-                    glyphNames: glyphNames,
-                    fontSize: compact ? 12.5 : 13,
-                    openGlyph: { model.openGlyphs([$0]) }
-                )
-            }
-        }
-    }
-
-    private var glyphNames: Set<String> {
-        let candidates = GlyphMentions.names(in: comment.body ?? "")
-        guard let font = GlyphsContext.font(of: GlyphsContext.currentDocument()) else { return [] }
-        return Set(candidates.filter { GlyphsContext.glyphExists($0, in: font) })
     }
 }

@@ -28,6 +28,7 @@ enum Style {
     static let chipRing = dynamic(light: 0xD3D3D8, dark: 0x4A4A4F)
     static let cell = dynamic(light: 0xFAFAFB, dark: 0x262628)
     static let badge = dynamic(light: 0xF0F0F3, dark: 0x333336)
+    static let rail = dynamic(light: 0xEAEAED, dark: 0x343437)
     static let neutralPill = dynamic(light: 0xEDEDF0, dark: 0x3A3A3D)
 
     // Issue states
@@ -149,6 +150,12 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 4
     var lineSpacing: CGFloat = 4
 
+    /// Children get at most the available width, so a long one shortens
+    /// instead of running past the edge.
+    private func size(of subview: LayoutSubview, maxWidth: CGFloat) -> CGSize {
+        subview.sizeThatFits(ProposedViewSize(width: maxWidth.isFinite ? maxWidth : nil, height: nil))
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
         var x: CGFloat = 0
@@ -156,7 +163,7 @@ struct FlowLayout: Layout {
         var lineHeight: CGFloat = 0
         var width: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = size(of: subview, maxWidth: maxWidth)
             if x > 0, x + size.width > maxWidth {
                 y += lineHeight + lineSpacing
                 x = 0
@@ -174,7 +181,7 @@ struct FlowLayout: Layout {
         var y = bounds.minY
         var lineHeight: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = size(of: subview, maxWidth: bounds.width)
             if x > bounds.minX, x + size.width > bounds.maxX {
                 y += lineHeight + lineSpacing
                 x = bounds.minX

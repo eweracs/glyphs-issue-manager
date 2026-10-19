@@ -15,6 +15,12 @@ enum Defaults {
         set { store.set(newValue, forKey: prefix + "currentGlyphOnly") }
     }
 
+    /// The activity thread shows events as well as comments.
+    static var activityShowsEvents: Bool {
+        get { store.object(forKey: prefix + "activityShowsEvents") as? Bool ?? true }
+        set { store.set(newValue, forKey: prefix + "activityShowsEvents") }
+    }
+
     /// Whether a `gh` CLI login may be used when no token is in the Keychain.
     /// Turned off by Sign Out, back on by Use gh CLI Login.
     static var useGitHubCLI: Bool {

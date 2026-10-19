@@ -32,6 +32,13 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   lists, task lists, quotes, code and images. Images use the signed URLs that
   GitHub includes with each issue.
 
+- **Activity.** Under each issue, its comments and history in time order,
+  on a rail: closed (as completed or not planned, or in a commit), reopened,
+  labels, assignees, milestones, title changes, commits that reference the
+  issue (with their messages), and mentions in other issues and pull
+  requests. Changes one person makes together become one line; runs of more
+  than six events collapse behind **Show n more events**; **All | Comments**
+  hides the events.
 - **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes
   to the issue numbered just below or above, open or closed, whatever the
   filters.
@@ -83,6 +90,7 @@ Sources/IssueCore/   platform-independent, unit-tested with `swift test`
   GitRepository.swift   finds the repository and its GitHub remote from .git files
   GitHubClient.swift    REST client: issues, comments, close/reopen, pagination, ETags
   GitHubModels.swift    issue, comment, label and user models
+  Timeline.swift        timeline entries → activity items, merging, collapsing
   GlyphMentions.swift   glyph names in issue text; relation to the current glyph
   MarkdownBlocks.swift  block-level markdown parsing for issue bodies
 Plugin/              the Glyphs plugin (AppKit, SwiftUI, GlyphsCore)
@@ -103,6 +111,9 @@ against the GlyphsCore headers inside Glyphs.app and links with
 
 - github.com only; GitHub Enterprise remotes aren't recognised.
 - Loads up to 1,000 issues per repository (pull requests are left out).
+- GitHub's REST timeline doesn't say which pull request closed an issue, or
+  which issue a duplicate points to. The pull request shows as its own
+  “mentioned this in” line; the duplicate line has no number.
 - Glyphs posts no notification for selection changes, so the current glyph is
   polled while the panel is open, a few times a second.
 - Built against Glyphs 3.5. Glyphs 4 is untested.

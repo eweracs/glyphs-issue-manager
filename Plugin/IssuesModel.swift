@@ -38,8 +38,17 @@ final class IssuesModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     /// A refresh that failed while older issues are still shown.
     @Published private(set) var refreshError: String?
-    @Published private(set) var comments: [Int: [GitHubComment]] = [:]
-    @Published private(set) var loadingComments: Set<Int> = []
+    /// Comments and events per issue, in time order.
+    @Published private(set) var activity: [Int: [ActivityItem]] = [:]
+    @Published private(set) var loadingActivity: Set<Int> = []
+    /// First lines of referenced commits' messages, by SHA.
+    @Published private(set) var commitMessages: [String: String] = [:]
+    /// Collapsed runs of events the user expanded.
+    @Published var expandedRuns: Set<String> = []
+    /// All (comments and events) or comments only.
+    @Published var activityShowsEvents = Defaults.activityShowsEvents {
+        didSet { Defaults.activityShowsEvents = activityShowsEvents }
+    }
     @Published private(set) var tokenSource: TokenStore.Source?
     /// Issues being closed or reopened right now.
     @Published private(set) var updatingIssues: Set<Int> = []
@@ -63,7 +72,7 @@ final class IssuesModel: ObservableObject {
         didSet {
             guard let number = selectedIssueNumber, number != oldValue else { return }
             markSeen(number)
-            loadComments(for: number)
+            loadActivity(for: number)
         }
     }
 
@@ -79,6 +88,9 @@ final class IssuesModel: ObservableObject {
     private var baseline: Date?
     private var mentionCache: [Int: (updatedAt: Date, names: [String])] = [:]
     private var componentCache: [String: [String]] = [:]
+    /// The issue's `updated_at` when its activity was last loaded.
+    private var activityLoadedAt: [Int: Date] = [:]
+    private var requestedCommits = Set<String>()
 
     // MARK: - Lifecycle
 
@@ -180,7 +192,9 @@ final class IssuesModel: ObservableObject {
         reloadTask?.cancel()
         repo = newRepo
         issues = []
-        comments = [:]
+        activity = [:]
+        activityLoadedAt = [:]
+        expandedRuns = []
         selectedIssueNumber = nil
         selectedLabels = []
         refreshError = nil
@@ -214,7 +228,7 @@ final class IssuesModel: ObservableObject {
                 self.refreshError = nil
                 self.phase = .ready
                 self.establishBaselineIfNeeded(repo)
-                if let number = self.selectedIssueNumber { self.loadComments(for: number, force: true) }
+                if let number = self.selectedIssueNumber { self.loadActivity(for: number) }
             } catch {
                 guard !Task.isCancelled, repo == self.repo else { return }
                 self.handle(error, repo: repo)
@@ -252,16 +266,44 @@ final class IssuesModel: ObservableObject {
         tokenResolved = true
     }
 
-    func loadComments(for number: Int, force: Bool = false) {
-        guard let repo, let issue = issues.first(where: { $0.number == number }), issue.comments > 0 else { return }
-        if !force, let existing = comments[number], existing.count >= issue.comments { return }
-        loadingComments.insert(number)
+    /// Loads the issue's comments and events, unless they are already loaded
+    /// for its current `updated_at`. The responses are ETag-cached, so a
+    /// forced reload that finds nothing new is cheap.
+    func loadActivity(for number: Int, force: Bool = false) {
+        guard let repo, let issue = issues.first(where: { $0.number == number }) else { return }
+        if !force, activity[number] != nil, activityLoadedAt[number] == issue.updatedAt { return }
+        guard !loadingActivity.contains(number) else { return }
+        loadingActivity.insert(number)
+        let client = self.client
         Task { [weak self] in
-            guard let self else { return }
-            let loaded = try? await self.client.comments(for: repo, issue: number)
-            guard repo == self.repo else { return }
-            if let loaded { self.comments[number] = loaded }
-            self.loadingComments.remove(number)
+            let entries = try? await client.timeline(for: repo, issue: number)
+            guard let self, repo == self.repo else { return }
+            if let entries {
+                let items = ActivityBuilder.items(from: entries)
+                self.activity[number] = items
+                self.activityLoadedAt[number] = issue.updatedAt
+                self.loadCommitMessages(for: items, in: repo)
+            }
+            self.loadingActivity.remove(number)
+        }
+    }
+
+    private func loadCommitMessages(for items: [ActivityItem], in repo: GitHubRepo) {
+        let commits = items.compactMap { item -> CommitRef? in
+            guard case .event(let event) = item else { return nil }
+            switch event.kind {
+            case .referenced(let commit): return commit
+            case .closed(_, let commit?): return commit
+            default: return nil
+            }
+        }
+        let client = self.client
+        for commit in commits where requestedCommits.insert(commit.sha).inserted {
+            guard let url = commit.apiURL else { continue }
+            Task { [weak self] in
+                guard let message = try? await client.commitMessage(at: url) else { return }
+                self?.commitMessages[commit.sha] = message
+            }
         }
     }
 
@@ -461,6 +503,8 @@ final class IssuesModel: ObservableObject {
                 }
                 // Our own change isn't new activity.
                 self.markSeen(updated.number)
+                // Show the new closed or reopened event.
+                self.loadActivity(for: updated.number, force: true)
             } catch {
                 guard let self, repo == self.repo else { return }
                 self.actionError = ActionError(number: issue.number, message: self.describeChangeError(error, repo: repo))
