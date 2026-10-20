@@ -17,9 +17,13 @@ struct CompactHeader: View {
                 }
             }
             SearchField(text: $model.searchText, placeholder: "Search issues or /glyphname")
+            // The toggle gets narrower in steps, so the row always fits the
+            // panel's minimum width, even with three-digit counts.
             ViewThatFits(in: .horizontal) {
-                filterRow(showsTitle: true)
-                filterRow(showsTitle: false)
+                filterRow(showsTitle: true, nameWidth: 96)
+                filterRow(showsTitle: false, nameWidth: 96)
+                filterRow(showsTitle: false, nameWidth: 52)
+                filterRow(showsTitle: false, nameWidth: nil)
             }
         }
         .padding(.horizontal, 12)
@@ -27,11 +31,11 @@ struct CompactHeader: View {
         .padding(.bottom, 10)
     }
 
-    private func filterRow(showsTitle: Bool) -> some View {
+    private func filterRow(showsTitle: Bool, nameWidth: CGFloat?) -> some View {
         let counts = model.counts
         return HStack(spacing: 6) {
             StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed)
-            GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: showsTitle)
+            GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: showsTitle, nameWidth: nameWidth)
             Spacer(minLength: 0)
             LabelFilterButton(model: model)
         }
@@ -67,7 +71,10 @@ struct WideTitleBar: View {
             // The search field gives up width before the repository name does.
             SearchField(text: $model.searchText, placeholder: "Search")
                 .frame(minWidth: 110, idealWidth: 200, maxWidth: 200)
-            RefreshButton(model: model)
+            HStack(spacing: 0) {
+                NewIssueButton(model: model)
+                RefreshButton(model: model)
+            }
         }
         // Should the row ever be too wide, let it run off the right edge
         // rather than slide under the traffic lights.
@@ -117,7 +124,7 @@ struct RepositoryButton: View {
     private func menuItems() -> [NSMenuItem] {
         var items: [NSMenuItem] = [
             ActionMenuItem("Open Issues on GitHub") { model.openRepositoryOnGitHub() },
-            ActionMenuItem("New Issue on GitHub") { model.openNewIssueOnGitHub() },
+            ActionMenuItem("New Issue…") { model.startNewIssue() },
             .separator(),
             ActionMenuItem("Choose Repository…") { model.chooseRepository() },
         ]

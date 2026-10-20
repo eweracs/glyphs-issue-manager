@@ -144,6 +144,9 @@ struct GlyphFilterToggle: View {
     @Binding var isOn: Bool
     let glyph: String?
     var showsTitle = true
+    /// Longest the glyph name may get before it is shortened in the middle;
+    /// nil leaves only the icon (the tooltip still names the glyph).
+    var nameWidth: CGFloat? = 96
 
     var body: some View {
         Button {
@@ -152,12 +155,14 @@ struct GlyphFilterToggle: View {
             HStack(spacing: 5) {
                 GlyphBoxIcon()
                 if showsTitle { Text("Current glyph") }
-                Text("/" + (glyph ?? "–"))
-                    .font(.system(size: 11, weight: isOn ? .medium : .regular, design: .monospaced))
-                    .foregroundColor(isOn ? .accentColor : Style.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 96)
+                if let nameWidth {
+                    Text("/" + (glyph ?? "–"))
+                        .font(.system(size: 11, weight: isOn ? .medium : .regular, design: .monospaced))
+                        .foregroundColor(isOn ? .accentColor : Style.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: nameWidth)
+                }
             }
             .font(.system(size: 12, weight: isOn ? .semibold : .regular))
             .foregroundColor(isOn ? .accentColor : Style.mutedText)
@@ -174,7 +179,7 @@ struct GlyphFilterToggle: View {
         .opacity(glyph == nil && !isOn ? 0.5 : 1)
         .accessibilityLabel("Current glyph \(glyph ?? "")")
         .accessibilityAddTraits(isOn ? .isSelected : [])
-        .help("Only show issues that mention the current glyph, its variants, or glyphs that use it as a component")
+        .help("Only show issues that mention the current glyph\(glyph.map { ", /\($0)," } ?? ""), its variants, or glyphs that use it as a component")
     }
 }
 
@@ -202,28 +207,46 @@ struct IconButton: View {
 /// Accent-filled button (28 pt, rounded 7).
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 14)
-            .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.accentColor))
-            .opacity(configuration.isPressed ? 0.8 : 1)
+        StyledBody(configuration: configuration)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.accentColor))
+                .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
+        }
     }
 }
 
 /// White button with a hairline ring (28 pt, rounded 7).
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12.5, weight: .medium))
-            .foregroundColor(Style.text)
-            .padding(.horizontal, 12)
-            .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Style.field))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Style.fieldRing, lineWidth: 1))
-            .shadow(color: .black.opacity(0.04), radius: 0.5, y: 1)
-            .opacity(configuration.isPressed ? 0.75 : 1)
+        StyledBody(configuration: configuration)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundColor(Style.text)
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Style.field))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Style.fieldRing, lineWidth: 1))
+                .shadow(color: .black.opacity(0.04), radius: 0.5, y: 1)
+                .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
+        }
     }
 }
 

@@ -37,7 +37,9 @@ struct RootView: View {
     private var compact: some View {
         switch model.phase {
         case .ready:
-            if let issue = model.selectedIssue {
+            if model.isComposingIssue {
+                NewIssueView(model: model, compact: true)
+            } else if let issue = model.selectedIssue {
                 IssueDetailView(issue: issue, model: model, compact: true)
             } else {
                 VStack(spacing: 0) {
@@ -66,7 +68,9 @@ struct RootView: View {
             Rectangle()
                 .fill(Style.border)
                 .frame(width: 1)
-            if let issue = model.selectedIssue {
+            if model.isComposingIssue {
+                NewIssueView(model: model, compact: false)
+            } else if let issue = model.selectedIssue {
                 IssueDetailView(issue: issue, model: model, compact: false)
             } else {
                 EmptyStateView(symbol: "sidebar.left", title: "No issue selected", message: "Choose an issue from the list.") {
@@ -93,14 +97,34 @@ struct CompactTitleBar: View {
                 .lineLimit(1)
                 .padding(.horizontal, chrome.trafficLightsInset)
                 .allowsHitTesting(false)
-            HStack {
+            HStack(spacing: 0) {
                 Spacer()
                     .allowsHitTesting(false)
+                NewIssueButton(model: model)
                 RefreshButton(model: model)
             }
             .padding(.trailing, 8)
         }
         .frame(height: chrome.titlebarHeight)
+    }
+}
+
+/// Opens the new-issue form.
+struct NewIssueButton: View {
+    @ObservedObject var model: IssuesModel
+
+    var body: some View {
+        Button(action: model.startNewIssue) {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 13))
+                .foregroundColor(Style.icon)
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.phase != .ready)
+        .help(model.canChangeIssues ? "New issue" : "New issue (sign in to create it)")
+        .accessibilityLabel("New issue")
     }
 }
 

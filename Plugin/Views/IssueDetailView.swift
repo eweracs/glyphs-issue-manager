@@ -26,6 +26,9 @@ struct IssueDetailView: View {
                         openGlyph: { model.openGlyphs([$0]) }
                     )
                     comments
+                    if !compact {
+                        CommentBox(issue: issue, model: model)
+                    }
                 }
                 .padding(.horizontal, compact ? 14 : 28)
                 .padding(.top, compact ? 14 : 22)
@@ -34,32 +37,11 @@ struct IssueDetailView: View {
             }
             .id(issue.number)
             if compact {
-                actionBar
+                // Comment box, close or reopen, always in reach.
+                CommentBar(issue: issue, model: model)
             }
         }
         .background(Style.content)
-    }
-
-    /// Compact palette: close or reopen, and reply on GitHub, always in reach.
-    private var actionBar: some View {
-        HStack(spacing: 8) {
-            IssueStateButton(issue: issue, model: model)
-            Spacer(minLength: 8)
-            Button {
-                model.openOnGitHub(issue)
-            } label: {
-                HStack(spacing: 3) {
-                    Text("Reply on GitHub")
-                    Image(systemName: "arrow.up.forward")
-                        .font(.system(size: 8.5, weight: .bold))
-                }
-            }
-            .buttonStyle(AccentLinkButtonStyle(size: 12, weight: .regular))
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 46)
-        .background(Style.chrome)
-        .overlay(alignment: .top) { Rule() }
     }
 
     private var navigationBar: some View {

@@ -62,18 +62,6 @@ struct ActivitySection: View {
                 }
                 .frame(maxWidth: compact ? .infinity : 640, alignment: .leading)
             }
-
-            if !compact {
-                Button {
-                    model.openOnGitHub(issue)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrowshape.turn.up.left")
-                        Text(issue.comments > 0 ? "Reply on GitHub" : "Comment on GitHub")
-                    }
-                }
-                .buttonStyle(AccentLinkButtonStyle(size: 12, weight: .regular))
-            }
         }
         .padding(.top, compact ? 14 : 16)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -2,23 +2,26 @@ import AppKit
 import SwiftUI
 
 /// “Close issue ⌄” for open issues (the menu offers *completed* or *not
-/// planned*, as on GitHub), “Reopen issue” for closed ones.
+/// planned*, as on GitHub), “Reopen issue” for closed ones. Next to a comment
+/// box (`postingDraft`), they post the unsent comment first and say so.
 struct IssueStateButton: View {
     let issue: GitHubIssue
     @ObservedObject var model: IssuesModel
+    var postingDraft = false
 
     var body: some View {
         let busy = model.updatingIssues.contains(issue.number)
         let enabled = model.canChangeIssues && !busy
+        let withComment = postingDraft && model.hasDraft(for: issue)
         Group {
             if issue.isOpen {
                 HStack(spacing: 0) {
                     Button {
-                        model.close(issue, reason: .completed)
+                        model.close(issue, reason: .completed, postingDraft: postingDraft)
                     } label: {
                         HStack(spacing: 6) {
                             icon(busy: busy, kind: .completed)
-                            Text("Close issue")
+                            Text(withComment ? "Close with comment" : "Close issue")
                         }
                         .padding(.leading, 9)
                         .padding(.trailing, 10)
@@ -48,11 +51,11 @@ struct IssueStateButton: View {
                 .shadow(color: .black.opacity(0.04), radius: 0.5, y: 1)
             } else {
                 Button {
-                    model.reopen(issue)
+                    model.reopen(issue, postingDraft: postingDraft)
                 } label: {
                     HStack(spacing: 6) {
                         icon(busy: busy, kind: .open)
-                        Text("Reopen issue")
+                        Text(withComment ? "Reopen with comment" : "Reopen issue")
                     }
                 }
                 .buttonStyle(SecondaryButtonStyle())
@@ -79,9 +82,10 @@ struct IssueStateButton: View {
     }
 
     private func menuItems() -> [NSMenuItem] {
-        [
-            ActionMenuItem("Close as Completed") { model.close(issue, reason: .completed) },
-            ActionMenuItem("Close as Not Planned") { model.close(issue, reason: .notPlanned) },
+        let suffix = postingDraft && model.hasDraft(for: issue) ? " with Comment" : ""
+        return [
+            ActionMenuItem("Close as Completed" + suffix) { model.close(issue, reason: .completed, postingDraft: postingDraft) },
+            ActionMenuItem("Close as Not Planned" + suffix) { model.close(issue, reason: .notPlanned, postingDraft: postingDraft) },
         ]
     }
 }

@@ -37,6 +37,50 @@ final class GitHubClientTests: XCTestCase {
         XCTAssertTrue(issue.isOpen)
     }
 
+    func testAddCommentPostsBody() async throws {
+        var seen: (method: String?, path: String?, body: [String: Any])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.jsonObject(of: request))
+            return (201, [:], Data("""
+            {"id": 99, "body": "Checked all heavy masters.", "user": {"login": "lina-s"},
+             "created_at": "2026-10-19T09:00:00Z", "updated_at": "2026-10-19T09:00:00Z",
+             "html_url": "https://github.com/acme-type/halden-sans/issues/7#issuecomment-99"}
+            """.utf8))
+        }
+        let comment = try await client(token: "secret").addComment("Checked all heavy masters.", toIssue: 7, in: repo)
+        XCTAssertEqual(seen?.method, "POST")
+        XCTAssertEqual(seen?.path, "/repos/acme-type/halden-sans/issues/7/comments")
+        XCTAssertEqual(seen?.body["body"] as? String, "Checked all heavy masters.")
+        XCTAssertEqual(comment.id, 99)
+    }
+
+    func testCreateIssuePostsTitleBodyAndLabels() async throws {
+        var seen: (method: String?, path: String?, body: [String: Any])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.jsonObject(of: request))
+            return (201, [:], Self.issueJSON(number: 45, state: "open", reason: nil))
+        }
+        let issue = try await client(token: "secret").createIssue(
+            title: "/a too narrow in Bold", body: "See /a and /aacute.", labels: ["spacing"], in: repo
+        )
+        XCTAssertEqual(seen?.method, "POST")
+        XCTAssertEqual(seen?.path, "/repos/acme-type/halden-sans/issues")
+        XCTAssertEqual(seen?.body["title"] as? String, "/a too narrow in Bold")
+        XCTAssertEqual(seen?.body["body"] as? String, "See /a and /aacute.")
+        XCTAssertEqual(seen?.body["labels"] as? [String], ["spacing"])
+        XCTAssertEqual(issue.number, 45)
+    }
+
+    func testCreateIssueWithoutLabelsLeavesThemOut() async throws {
+        var body: [String: Any] = [:]
+        StubProtocol.handler = { request in
+            body = StubProtocol.jsonObject(of: request)
+            return (201, [:], Self.issueJSON(number: 46, state: "open", reason: nil))
+        }
+        _ = try await client(token: "secret").createIssue(title: "Kerning T/o", body: "", labels: [], in: repo)
+        XCTAssertNil(body["labels"])
+    }
+
     func testForbiddenIsNotARateLimit() async {
         StubProtocol.handler = { _ in
             (403, ["x-ratelimit-remaining": "4999"], Data(#"{"message":"Resource not accessible by personal access token"}"#.utf8))
@@ -101,8 +145,12 @@ final class StubProtocol: URLProtocol {
 
     override func stopLoading() {}
 
-    /// URLSession moves the body into a stream before it reaches a protocol.
     static func jsonBody(of request: URLRequest) -> [String: String] {
+        jsonObject(of: request).compactMapValues { $0 as? String }
+    }
+
+    /// URLSession moves the body into a stream before it reaches a protocol.
+    static func jsonObject(of request: URLRequest) -> [String: Any] {
         var data = request.httpBody ?? Data()
         if data.isEmpty, let stream = request.httpBodyStream {
             stream.open()
@@ -114,6 +162,6 @@ final class StubProtocol: URLProtocol {
                 data.append(buffer, count: count)
             }
         }
-        return (try? JSONSerialization.jsonObject(with: data) as? [String: String]) ?? [:]
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 }

@@ -7,7 +7,9 @@ import SwiftUI
 final class IssuesPanelController: NSObject, NSWindowDelegate {
 
     private static let frameName = "com.eweracs.GlyphsIssueManager.panel"
-    private static let minimumSize = NSSize(width: 300, height: 380)
+    /// Narrower than this, the compact header's filter row (Open/Closed,
+    /// Current glyph, labels) no longer fits between its margins.
+    private static let minimumSize = NSSize(width: 340, height: 380)
 
     private var panel: IssuesPanel?
     private let model = IssuesModel()
@@ -63,6 +65,15 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
 
         if !panel.setFrameUsingName(Self.frameName) {
             panel.center()
+        }
+        // A frame saved before the minimum was raised may be too small.
+        var frame = panel.frame
+        if frame.width < Self.minimumSize.width || frame.height < Self.minimumSize.height {
+            frame.size.width = max(frame.width, Self.minimumSize.width)
+            let height = max(frame.height, Self.minimumSize.height)
+            frame.origin.y -= height - frame.height
+            frame.size.height = height
+            panel.setFrame(frame, display: false)
         }
         panel.setFrameAutosaveName(Self.frameName)
         model.window = panel

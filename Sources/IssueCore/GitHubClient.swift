@@ -112,6 +112,28 @@ public final class GitHubClient {
         }
     }
 
+    /// One issue, fresh from GitHub.
+    public func issue(_ number: Int, in repo: GitHubRepo) async throws -> GitHubIssue {
+        let (data, _) = try await get(endpoint(repo, "issues/\(number)"))
+        return try decode(GitHubIssue.self, from: data)
+    }
+
+    /// Adds a comment to an issue. Needs a token that may write issues.
+    @discardableResult
+    public func addComment(_ body: String, toIssue number: Int, in repo: GitHubRepo) async throws -> GitHubComment {
+        let data = try await send("POST", to: endpoint(repo, "issues/\(number)/comments"), json: ["body": body])
+        return try decode(GitHubComment.self, from: data)
+    }
+
+    /// Opens a new issue. Needs a token that may write issues; labels the
+    /// token may not set are left off by GitHub.
+    public func createIssue(title: String, body: String, labels: [String], in repo: GitHubRepo) async throws -> GitHubIssue {
+        var fields: [String: Any] = ["title": title, "body": body]
+        if !labels.isEmpty { fields["labels"] = labels }
+        let data = try await send("POST", to: endpoint(repo, "issues"), json: fields)
+        return try decode(GitHubIssue.self, from: data)
+    }
+
     /// Closes an issue. Needs a token that may write issues.
     public func close(issue number: Int, in repo: GitHubRepo, reason: CloseReason) async throws -> GitHubIssue {
         try await updateIssue(number, in: repo, fields: ["state": "closed", "state_reason": reason.rawValue])
@@ -142,15 +164,25 @@ public final class GitHubClient {
     }
 
     private func updateIssue(_ number: Int, in repo: GitHubRepo, fields: [String: String]) async throws -> GitHubIssue {
-        var request = makeRequest(endpoint(repo, "issues/\(number)"))
-        request.httpMethod = "PATCH"
+        let data = try await send("PATCH", to: endpoint(repo, "issues/\(number)"), json: fields)
+        return try decode(GitHubIssue.self, from: data)
+    }
+
+    /// Sends a change with a JSON body. Cached responses are out of date
+    /// afterwards, so the cache is cleared.
+    private func send(_ method: String, to url: URL, json fields: [String: Any]) async throws -> Data {
+        var request = makeRequest(url)
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
         let (data, _) = try await perform(request)
-        // Cached issue lists are out of date now.
         clearCache()
+        return data
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
-            return try JSONDecoder.gitHub.decode(GitHubIssue.self, from: data)
+            return try JSONDecoder.gitHub.decode(type, from: data)
         } catch {
             throw GitHubError.decoding(String(describing: error))
         }

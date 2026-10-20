@@ -46,10 +46,20 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   also offers **Close as Not Planned**, as on GitHub. Closed issues show
   **Reopen issue**. In the compact palette the button sits in the bar at the
   bottom of an issue, in the split view next to **Open on GitHub**, and both
-  are in a row's context menu. This needs a sign-in (see below).
+  are in a row's context menu.
+- **Comment.** A comment box under each issue (in the compact palette's
+  bottom bar; at the end of the activity in the split view). **Comment** or
+  ⌘↩ posts it; with text in the box, closing becomes **Close with comment**
+  (and **Reopen with comment**), as on GitHub. The glyph button adds the
+  current glyph's name, e.g. `/a`. Unsent comments are kept per issue while
+  Glyphs runs.
+- **New issues.** The compose button in the title bar (or **New Issue…** in
+  the repository menu) opens a form for title, description and labels;
+  **Create issue** or ⌘↩ files it and opens it. **Cancel** keeps what you
+  typed for next time.
 
-Replying and labelling happen on GitHub (**Reply on GitHub**, **Open on
-GitHub**).
+Commenting, closing and creating need a sign-in (see below). Editing labels
+of existing issues happens on GitHub (**Open on GitHub**).
 
 ## Signing in
 
@@ -61,7 +71,7 @@ uses, in this order:
 2. your existing `gh` CLI login (`gh auth token`), if `gh` is installed.
 
 A fine-grained token with read-only access to **Issues** for your font
-repositories is enough to read them; to close and reopen issues it needs
+repositories is enough to read them; to comment, close, reopen and create issues it needs
 **Issues: Read and write** (a classic token needs the `repo` scope; a `gh`
 login has it). **Sign Out** removes the saved token and stops using
 the `gh` login until you choose **Use gh CLI Login** again. Responses are
@@ -88,7 +98,7 @@ and the architectures to build (default `arm64 x86_64`).
 ```
 Sources/IssueCore/   platform-independent, unit-tested with `swift test`
   GitRepository.swift   finds the repository and its GitHub remote from .git files
-  GitHubClient.swift    REST client: issues, comments, close/reopen, pagination, ETags
+  GitHubClient.swift    REST client: issues, timeline, comments, create/close/reopen, ETags
   GitHubModels.swift    issue, comment, label and user models
   Timeline.swift        timeline entries → activity items, merging, collapsing
   GlyphMentions.swift   glyph names in issue text; relation to the current glyph

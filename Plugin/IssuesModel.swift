@@ -50,10 +50,22 @@ final class IssuesModel: ObservableObject {
         didSet { Defaults.activityShowsEvents = activityShowsEvents }
     }
     @Published private(set) var tokenSource: TokenStore.Source?
-    /// Issues being closed or reopened right now.
+    /// Issues being commented on, closed or reopened right now.
     @Published private(set) var updatingIssues: Set<Int> = []
-    /// The last close or reopen that failed, shown in that issue's detail.
+    /// The last comment, close or reopen that failed, shown in that issue's detail.
     @Published var actionError: ActionError?
+    /// Unsent comments, per issue.
+    @Published var commentDrafts: [Int: String] = [:]
+
+    // MARK: New issue
+
+    /// The new-issue form is showing (in place of the list or the detail).
+    @Published private(set) var isComposingIssue = false
+    @Published var newIssueTitle = ""
+    @Published var newIssueBody = ""
+    @Published var newIssueLabels: Set<String> = []
+    @Published private(set) var isCreatingIssue = false
+    @Published var newIssueError: String?
 
     struct ActionError: Equatable {
         let number: Int
@@ -201,6 +213,10 @@ final class IssuesModel: ObservableObject {
         lastSync = nil
         updatingIssues = []
         actionError = nil
+        commentDrafts = [:]
+        isComposingIssue = false
+        newIssueLabels = []
+        newIssueError = nil
         mentionCache.removeAll()
         if let newRepo {
             seen = Defaults.seenActivity(for: newRepo)
@@ -401,10 +417,6 @@ final class IssuesModel: ObservableObject {
         if let repo { NSWorkspace.shared.open(repo.issuesURL) }
     }
 
-    func openNewIssueOnGitHub() {
-        if let repo { NSWorkspace.shared.open(repo.newIssueURL) }
-    }
-
     // MARK: - Issues
 
     var selectedIssue: GitHubIssue? {
@@ -460,6 +472,7 @@ final class IssuesModel: ObservableObject {
     }
 
     func select(_ number: Int?) {
+        isComposingIssue = false
         selectedIssueNumber = number
     }
 
@@ -473,50 +486,133 @@ final class IssuesModel: ObservableObject {
         return issues.filter { $0.number > number }.min { $0.number < $1.number }
     }
 
-    // MARK: - Closing and reopening
+    // MARK: - Commenting, closing and reopening
 
-    /// Closing needs a token; GitHub decides whether it may write issues.
+    /// Writing needs a token; GitHub decides whether it may write issues.
     var canChangeIssues: Bool { tokenSource != nil }
 
-    func close(_ issue: GitHubIssue, reason: CloseReason) {
-        guard let repo else { return }
-        let client = self.client
-        change(issue, in: repo) { try await client.close(issue: issue.number, in: repo, reason: reason) }
+    private enum StateChange {
+        case close(CloseReason)
+        case reopen
     }
 
-    func reopen(_ issue: GitHubIssue) {
-        guard let repo else { return }
-        let client = self.client
-        change(issue, in: repo) { try await client.reopen(issue: issue.number, in: repo) }
+    func draft(for issue: GitHubIssue) -> String {
+        commentDrafts[issue.number] ?? ""
     }
 
-    private func change(_ issue: GitHubIssue, in repo: GitHubRepo, _ operation: @escaping () async throws -> GitHubIssue) {
-        guard !updatingIssues.contains(issue.number) else { return }
-        updatingIssues.insert(issue.number)
+    func hasDraft(for issue: GitHubIssue) -> Bool {
+        !draft(for: issue).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func postComment(on issue: GitHubIssue) {
+        guard hasDraft(for: issue) else { return }
+        submit(issue, comment: draft(for: issue), change: nil)
+    }
+
+    /// Closes the issue; with `postingDraft`, the unsent comment goes first
+    /// (GitHub's “Close with comment”).
+    func close(_ issue: GitHubIssue, reason: CloseReason, postingDraft: Bool = false) {
+        submit(issue, comment: postingDraft && hasDraft(for: issue) ? draft(for: issue) : nil, change: .close(reason))
+    }
+
+    func reopen(_ issue: GitHubIssue, postingDraft: Bool = false) {
+        submit(issue, comment: postingDraft && hasDraft(for: issue) ? draft(for: issue) : nil, change: .reopen)
+    }
+
+    private func submit(_ issue: GitHubIssue, comment: String?, change: StateChange?) {
+        guard let repo, !updatingIssues.contains(issue.number) else { return }
+        let number = issue.number
+        updatingIssues.insert(number)
         actionError = nil
+        let client = self.client
         Task { [weak self] in
             do {
-                let updated = try await operation()
+                if let comment {
+                    try await client.addComment(comment, toIssue: number, in: repo)
+                    self?.commentDrafts[number] = nil
+                }
+                let updated: GitHubIssue
+                switch change {
+                case .close(let reason)?: updated = try await client.close(issue: number, in: repo, reason: reason)
+                case .reopen?: updated = try await client.reopen(issue: number, in: repo)
+                case nil: updated = try await client.issue(number, in: repo)
+                }
                 guard let self, repo == self.repo else { return }
-                if let index = self.issues.firstIndex(where: { $0.number == updated.number }) {
+                if let index = self.issues.firstIndex(where: { $0.number == number }) {
                     self.issues[index] = updated
                 }
                 // Our own change isn't new activity.
-                self.markSeen(updated.number)
-                // Show the new closed or reopened event.
-                self.loadActivity(for: updated.number, force: true)
+                self.markSeen(number)
+                self.loadActivity(for: number, force: true)
             } catch {
                 guard let self, repo == self.repo else { return }
-                self.actionError = ActionError(number: issue.number, message: self.describeChangeError(error, repo: repo))
+                self.actionError = ActionError(number: number, message: self.describeChangeError(error, repo: repo))
+                // A comment may have gone through before the close failed.
+                self.loadActivity(for: number, force: true)
             }
-            self?.updatingIssues.remove(issue.number)
+            self?.updatingIssues.remove(number)
+        }
+    }
+
+    /// Adds “/a ” (the current glyph) to the end of a text.
+    func appendingCurrentGlyph(to text: String) -> String {
+        guard let glyph = currentGlyph else { return text }
+        let separator = text.isEmpty || text.hasSuffix(" ") || text.hasSuffix("\n") ? "" : " "
+        return text + separator + "/" + glyph + " "
+    }
+
+    // MARK: - New issue
+
+    func startNewIssue() {
+        newIssueError = nil
+        isComposingIssue = true
+    }
+
+    /// Leaves the form; what was typed is kept for next time.
+    func cancelNewIssue() {
+        isComposingIssue = false
+    }
+
+    var canCreateIssue: Bool {
+        !newIssueTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreatingIssue
+    }
+
+    func toggleNewIssueLabel(_ name: String) {
+        if newIssueLabels.contains(name) { newIssueLabels.remove(name) } else { newIssueLabels.insert(name) }
+    }
+
+    func createIssue() {
+        guard let repo, canCreateIssue else { return }
+        let title = newIssueTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = newIssueBody
+        let labels = newIssueLabels.sorted()
+        isCreatingIssue = true
+        newIssueError = nil
+        let client = self.client
+        Task { [weak self] in
+            do {
+                let created = try await client.createIssue(title: title, body: body, labels: labels, in: repo)
+                guard let self, repo == self.repo else { return }
+                self.issues.removeAll { $0.number == created.number }
+                let index = self.issues.firstIndex { $0.number < created.number } ?? self.issues.endIndex
+                self.issues.insert(created, at: index)
+                self.newIssueTitle = ""
+                self.newIssueBody = ""
+                self.newIssueLabels = []
+                self.stateFilter = .open
+                self.select(created.number)
+            } catch {
+                guard let self, repo == self.repo else { return }
+                self.newIssueError = self.describeChangeError(error, repo: repo)
+            }
+            self?.isCreatingIssue = false
         }
     }
 
     private func describeChangeError(_ error: Error, repo: GitHubRepo) -> String {
         switch error as? GitHubError {
         case .forbidden(_)?, .notFound?:
-            return "Your GitHub token can’t change issues in \(repo). A fine-grained token needs Issues: Read and write; a classic token needs the repo scope."
+            return "Your GitHub token can’t write issues in \(repo). A fine-grained token needs Issues: Read and write; a classic token needs the repo scope."
         case .unauthorized?:
             return "GitHub rejected the token. Sign in again from the repository menu."
         default:
