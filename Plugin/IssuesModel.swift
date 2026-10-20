@@ -28,6 +28,8 @@ final class IssuesModel: ObservableObject {
     @Published private(set) var repoIsOverride = false
     @Published private(set) var branch: String?
     @Published private(set) var currentGlyph: String?
+    /// Every selected glyph, for mentioning them in a comment or issue.
+    @Published private(set) var selectedGlyphs: [String] = []
     /// Bumped when the master changes, so glyph outlines redraw.
     @Published private(set) var masterID: String?
 
@@ -146,15 +148,20 @@ final class IssuesModel: ObservableObject {
         let url = document?.fileURL?.standardizedFileURL
 
         var glyph = GlyphsContext.currentGlyphName(in: document)
+        var selection = GlyphsContext.selectedGlyphNames(in: document)
         // The Font view stops reporting its selection while the panel is key;
         // keep the last glyph so the filter doesn't drop out while the user
         // works in the panel.
-        if glyph == nil, window?.isKeyWindow == true, url == fontURL {
-            glyph = currentGlyph
+        if window?.isKeyWindow == true, url == fontURL {
+            if glyph == nil { glyph = currentGlyph }
+            if selection.isEmpty { selection = selectedGlyphs }
         }
         if glyph != currentGlyph {
             currentGlyph = glyph
             componentCache.removeAll()
+        }
+        if selection != selectedGlyphs {
+            selectedGlyphs = selection
         }
         let master = GlyphsContext.currentMaster(in: document)?.id
         if master != masterID {
@@ -554,11 +561,15 @@ final class IssuesModel: ObservableObject {
         }
     }
 
-    /// Adds “/a ” (the current glyph) to the end of a text.
-    func appendingCurrentGlyph(to text: String) -> String {
-        guard let glyph = currentGlyph else { return text }
+    /// Adds the selected glyphs, “/Aring/Aacute/Abreve ”, to the end of a text.
+    func appendingSelectedGlyphs(to text: String) -> String {
+        guard !selectedGlyphs.isEmpty else { return text }
         let separator = text.isEmpty || text.hasSuffix(" ") || text.hasSuffix("\n") ? "" : " "
-        return text + separator + "/" + glyph + " "
+        return text + separator + Self.slashed(selectedGlyphs) + " "
+    }
+
+    static func slashed(_ names: [String]) -> String {
+        names.map { "/" + $0 }.joined()
     }
 
     // MARK: - New issue

@@ -46,23 +46,31 @@ struct ComposerEditor: View {
     }
 }
 
-/// “/a” — adds the current glyph's name to a text.
+/// “/a” — adds the selected glyphs' names to a text. With several selected
+/// it reads “/(selection)” and adds them all, “/Aring/Aacute/Abreve”.
 struct GlyphInsertButton: View {
     @ObservedObject var model: IssuesModel
     @Binding var text: String
 
     var body: some View {
-        if let glyph = model.currentGlyph {
+        let glyphs = model.selectedGlyphs
+        if let first = glyphs.first {
             Button {
-                text = model.appendingCurrentGlyph(to: text)
+                text = model.appendingSelectedGlyphs(to: text)
             } label: {
                 HStack(spacing: 4) {
                     GlyphBoxIcon(size: 12)
-                    Text("/" + glyph)
-                        .font(.system(size: 11, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 96)
+                    Group {
+                        if glyphs.count == 1 {
+                            Text("/" + first)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: 96)
+                        } else {
+                            Text("/") + Text("(selection)").foregroundColor(Style.mutedText.opacity(0.5))
+                        }
+                    }
+                    .font(.system(size: 11, design: .monospaced))
                 }
                 .foregroundColor(Style.mutedText)
                 .padding(.horizontal, 7)
@@ -73,8 +81,18 @@ struct GlyphInsertButton: View {
             }
             .buttonStyle(.plain)
             .fixedSize()
-            .help("Mention the current glyph, /\(glyph)")
+            .help(help(for: glyphs))
+            .accessibilityLabel(glyphs.count == 1 ? "Mention /\(first)" : "Mention the \(glyphs.count) selected glyphs")
         }
+    }
+
+    private func help(for glyphs: [String]) -> String {
+        if glyphs.count == 1 { return "Mention the current glyph, /\(glyphs[0])" }
+        // A long selection is named only in part.
+        let shown = 12
+        let names = IssuesModel.slashed(Array(glyphs.prefix(shown)))
+        let more = glyphs.count > shown ? " and \(glyphs.count - shown) more" : ""
+        return "Mention the \(glyphs.count) selected glyphs, \(names)\(more)"
     }
 }
 

@@ -29,6 +29,15 @@ enum GlyphsContext {
         return wc.selectedLayers().lazy.compactMap { ($0 as? GSLayer)?.parent?.name }.first
     }
 
+    /// The glyphs selected in the Font view, or in the Edit view's text in
+    /// their order there; the glyph being edited when nothing else is.
+    static func selectedGlyphNames(in document: NSDocument?) -> [String] {
+        guard let wc = windowController(of: document) else { return [] }
+        let names = wc.selectedLayers().compactMap { ($0 as? GSLayer)?.parent?.name }
+        if !names.isEmpty { return names }
+        return wc.activeLayer?.parent?.name.map { [$0] } ?? []
+    }
+
     static func currentMaster(in document: NSDocument?) -> GSFontMaster? {
         guard let font = font(of: document) else { return nil }
         let index = windowController(of: document).map { Int($0.masterIndex) } ?? 0
