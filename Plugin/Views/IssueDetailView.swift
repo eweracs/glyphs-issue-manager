@@ -94,10 +94,12 @@ struct IssueDetailView: View {
                     .textSelection(.enabled)
                 FlowLayout(spacing: compact ? 7 : 8, lineSpacing: 6) {
                     StatePill(issue: issue)
+                    // Wraps when the title column is narrow (beside the buttons).
                     Text(meta)
                         .font(.system(size: compact ? 11.5 : 12))
                         .foregroundColor(Style.secondaryText)
-                        .frame(height: 20)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minHeight: 20)
                     if !compact {
                         ForEach(issue.labels) { LabelPill(label: $0).frame(height: 20) }
                     }
@@ -165,10 +167,15 @@ struct IssueDetailView: View {
         ActivitySection(issue: issue, model: model, compact: compact)
     }
 
+    /// “#9 · eweracs opened 4 weeks ago · 1 comment”. Each “·” is tied to the
+    /// part after it with a no-break space, so a wrapped line starts with
+    /// “· 1 comment” instead of ending in a stray dot.
     private var meta: String {
+        let separator = " ·\u{00A0}"
         let author = issue.user?.login ?? "someone"
-        let opened = "#\(issue.number) · \(author) opened \(RelativeTime.string(for: issue.createdAt))"
+        let opened = "#\(issue.number)" + separator + "\(author) opened \(RelativeTime.string(for: issue.createdAt))"
         if compact || issue.comments == 0 { return opened }
-        return opened + " · " + (issue.comments == 1 ? "1 comment" : "\(issue.comments) comments")
+        let comments = issue.comments == 1 ? "1\u{00A0}comment" : "\(issue.comments)\u{00A0}comments"
+        return opened + separator + comments
     }
 }
