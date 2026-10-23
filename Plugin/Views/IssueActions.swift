@@ -11,8 +11,10 @@ struct IssueStateButton: View {
 
     var body: some View {
         let busy = model.updatingIssues.contains(issue.number)
-        let enabled = model.canChangeIssues && !busy
         let withComment = postingDraft && model.hasDraft(for: issue)
+        // The comment would go out with an image still uploading.
+        let waiting = withComment && model.isUploadingImages(into: .comment(issue.number))
+        let enabled = model.canChangeIssues && !busy && !waiting
         Group {
             if issue.isOpen {
                 HStack(spacing: 0) {

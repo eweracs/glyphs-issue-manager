@@ -14,7 +14,8 @@ enum Style {
     static let selectedRow = dynamic(light: 0xFFFFFF, dark: 0x3A3A3E)
 
     // Text
-    static let text = dynamic(light: 0x1D1D1F, dark: 0xF2F2F5)
+    static let textNS = nsDynamic(light: 0x1D1D1F, dark: 0xF2F2F5)
+    static let text = Color(nsColor: textNS)
     static let mutedText = dynamic(light: 0x3A3A3F, dark: 0xD2D2D7)
     static let secondaryText = dynamic(light: 0x6B6B70, dark: 0xA1A1A8)
     static let icon = dynamic(light: 0x55555A, dark: 0xB4B4BA)

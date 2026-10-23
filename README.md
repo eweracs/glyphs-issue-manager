@@ -51,14 +51,21 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   bottom bar; at the end of the activity in the split view). **Comment** or
   ⌘↩ posts it; with text in the box, closing becomes **Close with comment**
   (and **Reopen with comment**), as on GitHub. The glyph button adds the
-  current glyph's name, e.g. `/a`. Unsent comments are kept per issue while
-  Glyphs runs.
+  current glyph's name, e.g. `/a`, or all selected glyphs', e.g.
+  `/Aring/Aacute/Abreve`. Unsent comments are kept per issue while Glyphs
+  runs.
+- **Images.** Paste an image (a screenshot, an image file copied in Finder)
+  into a comment or a new issue's description, or drop one in. It uploads to
+  GitHub as when pasted on the website: `![Uploading image.png…]()` stands in
+  until it is up, then becomes `![image](https://github.com/user-attachments/…)`.
+  PNG, JPEG, GIF, WebP and SVG go up as they are, other image types as PNG,
+  up to 10 MB each. Posting waits until the uploads are done.
 - **New issues.** The compose button in the title bar (or **New Issue…** in
   the repository menu) opens a form for title, description and labels;
   **Create issue** or ⌘↩ files it and opens it. **Cancel** keeps what you
   typed for next time.
 
-Commenting, closing and creating need a sign-in (see below). Editing labels
+Commenting, closing, creating and adding images need a sign-in (see below). Editing labels
 of existing issues happens on GitHub (**Open on GitHub**).
 
 ## Signing in
@@ -73,7 +80,8 @@ uses, in this order:
 A fine-grained token with read-only access to **Issues** for your font
 repositories is enough to read them; to comment, close, reopen and create issues it needs
 **Issues: Read and write** (a classic token needs the `repo` scope; a `gh`
-login has it). **Sign Out** removes the saved token and stops using
+login has it). Adding images needs write access to the repository itself, as
+on GitHub. **Sign Out** removes the saved token and stops using
 the `gh` login until you choose **Use gh CLI Login** again. Responses are
 cached by ETag, so refreshes that find nothing new don't use up the limit.
 Issues refresh every five minutes while the panel is open, and when you return
@@ -98,7 +106,8 @@ and the architectures to build (default `arm64 x86_64`).
 ```
 Sources/IssueCore/   platform-independent, unit-tested with `swift test`
   GitRepository.swift   finds the repository and its GitHub remote from .git files
-  GitHubClient.swift    REST client: issues, timeline, comments, create/close/reopen, ETags
+  GitHubClient.swift    REST client: issues, timeline, comments, create/close/reopen, image uploads, ETags
+  ImageAttachment.swift an image to upload: type, size limit, markdown, placeholder
   GitHubModels.swift    issue, comment, label and user models
   Timeline.swift        timeline entries → activity items, merging, collapsing
   GlyphMentions.swift   glyph names in issue text; relation to the current glyph
@@ -120,6 +129,9 @@ against the GlyphsCore headers inside Glyphs.app and links with
 ## Limitations
 
 - github.com only; GitHub Enterprise remotes aren't recognised.
+- Images upload through the endpoint `gh issue comment --attach` uses
+  (`uploads.github.com/user-attachments/assets`); GitHub documents the `gh`
+  flag, not the endpoint itself. Videos can't be added from the panel.
 - Loads up to 1,000 issues per repository (pull requests are left out).
 - GitHub's REST timeline doesn't say which pull request closed an issue, or
   which issue a duplicate points to. The pull request shows as its own

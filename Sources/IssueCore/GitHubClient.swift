@@ -53,8 +53,10 @@ public final class GitHubClient {
 
     private let session: URLSession
     private let apiBase = URL(string: "https://api.github.com")!
+    private let uploadsBase = URL(string: "https://uploads.github.com")!
     private let lock = NSLock()
     private var cache: [URL: CachedResponse] = [:]
+    private var repositoryIDs: [GitHubRepo: Int] = [:]
 
     private struct CachedResponse {
         let etag: String
@@ -132,6 +134,39 @@ public final class GitHubClient {
         if !labels.isEmpty { fields["labels"] = labels }
         let data = try await send("POST", to: endpoint(repo, "issues"), json: fields)
         return try decode(GitHubIssue.self, from: data)
+    }
+
+    /// Uploads an image as GitHub's web editor does when one is pasted, and
+    /// returns its `github.com/user-attachments/assets/…` URL for the markdown.
+    /// It is visible to whoever can see the repository. Needs write access to
+    /// the repository; GitHub answers 404 without it.
+    public func uploadImage(_ image: ImageAttachment, to repo: GitHubRepo) async throws -> URL {
+        let repositoryID = try await repositoryID(of: repo)
+        var components = URLComponents(url: uploadsBase.appendingPathComponent("user-attachments/assets"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "name", value: image.fileName),
+            URLQueryItem(name: "content_type", value: image.contentType),
+            URLQueryItem(name: "repository_id", value: String(repositoryID)),
+        ]
+        var request = makeRequest(components.url!)
+        request.httpMethod = "POST"
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.httpBody = image.data
+        let (data, _) = try await perform(request)
+        struct Asset: Decodable { let url: URL }
+        return try decode(Asset.self, from: data).url
+    }
+
+    /// The repository's numeric id, which uploads are made against.
+    public func repositoryID(of repo: GitHubRepo) async throws -> Int {
+        if let known = knownRepositoryID(of: repo) { return known }
+        let url = apiBase.appendingPathComponent("repos/\(repo.owner)/\(repo.name)")
+        let (data, _) = try await get(url)
+        struct Repository: Decodable { let id: Int }
+        let id = try decode(Repository.self, from: data).id
+        remember(id, of: repo)
+        return id
     }
 
     /// Closes an issue. Needs a token that may write issues.
@@ -278,6 +313,18 @@ public final class GitHubClient {
     private func store(_ response: CachedResponse, for url: URL) {
         lock.lock()
         cache[url] = response
+        lock.unlock()
+    }
+
+    private func knownRepositoryID(of repo: GitHubRepo) -> Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        return repositoryIDs[repo]
+    }
+
+    private func remember(_ id: Int, of repo: GitHubRepo) {
+        lock.lock()
+        repositoryIDs[repo] = id
         lock.unlock()
     }
 

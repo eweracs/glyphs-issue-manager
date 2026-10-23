@@ -1,13 +1,15 @@
 import SwiftUI
 
 /// A multi-line text box in the panel's style that grows with its text
-/// between `minHeight` and `maxHeight`, then scrolls.
+/// between `minHeight` and `maxHeight`, then scrolls. Images pasted or
+/// dropped into it go to `onImage` (ComposerTextView.swift).
 struct ComposerEditor: View {
     @Binding var text: String
     let placeholder: String
     var minHeight: CGFloat = 36
     var maxHeight: CGFloat = 160
-    @FocusState private var focused: Bool
+    var onImage: ((ImageAttachment) -> String?)?
+    @State private var focused = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -19,19 +21,13 @@ struct ComposerEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundColor(.clear)
                 .accessibilityHidden(true)
-            TextEditor(text: $text)
-                .font(.system(size: 13))
-                .foregroundColor(Style.text)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 6)
-                .focused($focused)
+            ComposerTextView(text: $text, onImage: onImage) { focused = $0 }
             if text.isEmpty {
                 Text(placeholder)
                     .font(.system(size: 13))
                     .foregroundColor(Style.secondaryText)
                     .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 7)
                     .allowsHitTesting(false)
             }
         }
@@ -106,8 +102,12 @@ struct CommentBar: View {
     var body: some View {
         let draft = Binding(get: { model.draft(for: issue) }, set: { model.commentDrafts[issue.number] = $0 })
         VStack(spacing: 8) {
-            ComposerEditor(text: draft, placeholder: "Leave a comment", minHeight: 34, maxHeight: 150)
-                .disabled(!model.canChangeIssues)
+            ComposerEditor(text: draft, placeholder: "Leave a comment", minHeight: 34, maxHeight: 150) {
+                model.attach($0, to: .comment(issue.number))
+            }
+            .disabled(!model.canChangeIssues)
+            // The bar stays when the issue changes; its text view shouldn't.
+            .id(issue.number)
             // In one row where it fits; otherwise the glyph button moves up
             // to a line of its own, so “Comment” keeps its full width.
             ViewThatFits(in: .horizontal) {
@@ -142,8 +142,10 @@ struct CommentBox: View {
     var body: some View {
         let draft = Binding(get: { model.draft(for: issue) }, set: { model.commentDrafts[issue.number] = $0 })
         VStack(alignment: .leading, spacing: 8) {
-            ComposerEditor(text: draft, placeholder: "Leave a comment", minHeight: 72, maxHeight: 240)
-                .disabled(!model.canChangeIssues)
+            ComposerEditor(text: draft, placeholder: "Leave a comment", minHeight: 72, maxHeight: 240) {
+                model.attach($0, to: .comment(issue.number))
+            }
+            .disabled(!model.canChangeIssues)
             HStack(spacing: 8) {
                 GlyphInsertButton(model: model, text: draft)
                 Spacer(minLength: 4)
@@ -156,7 +158,7 @@ struct CommentBox: View {
                         }
                     }
                     .buttonStyle(SecondaryButtonStyle())
-                    .disabled(model.updatingIssues.contains(issue.number))
+                    .disabled(model.updatingIssues.contains(issue.number) || model.isUploadingImages(into: .comment(issue.number)))
                 }
                 CommentButton(issue: issue, model: model)
             }
@@ -173,6 +175,7 @@ private struct CommentButton: View {
 
     var body: some View {
         let busy = model.updatingIssues.contains(issue.number)
+        let uploading = model.isUploadingImages(into: .comment(issue.number))
         Button {
             model.postComment(on: issue)
         } label: {
@@ -190,8 +193,13 @@ private struct CommentButton: View {
         .buttonStyle(PrimaryButtonStyle())
         .fixedSize()
         .keyboardShortcut(.return, modifiers: .command)
-        .disabled(!model.canChangeIssues || !model.hasDraft(for: issue) || busy)
-        .help(model.canChangeIssues ? "Post the comment  ⌘↩" : "Sign in from the repository menu to comment")
+        .disabled(!model.canChangeIssues || !model.hasDraft(for: issue) || busy || uploading)
+        .help(help(uploading: uploading))
+    }
+
+    private func help(uploading: Bool) -> String {
+        if !model.canChangeIssues { return "Sign in from the repository menu to comment" }
+        return uploading ? "Waiting for images to upload" : "Post the comment  ⌘↩"
     }
 }
 
@@ -238,10 +246,12 @@ struct NewIssueView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ComposerEditor(
                             text: $model.newIssueBody,
-                            placeholder: "Describe the issue. Mention glyphs as /a or /adieresis.",
+                            placeholder: "Describe the issue. Mention glyphs as /a or /adieresis; paste or drop images.",
                             minHeight: compact ? 150 : 180,
                             maxHeight: compact ? 320 : 420
-                        )
+                        ) {
+                            model.attach($0, to: .newIssue)
+                        }
                         GlyphInsertButton(model: model, text: $model.newIssueBody)
                     }
 
@@ -347,7 +357,12 @@ struct NewIssueView: View {
         .buttonStyle(PrimaryButtonStyle())
         .keyboardShortcut(.return, modifiers: .command)
         .disabled(!model.canChangeIssues || !model.canCreateIssue)
-        .help(model.canChangeIssues ? "Create the issue on GitHub  ⌘↩" : "Sign in from the repository menu to create issues")
+        .help(createHelp)
+    }
+
+    private var createHelp: String {
+        if !model.canChangeIssues { return "Sign in from the repository menu to create issues" }
+        return model.isUploadingImages(into: .newIssue) ? "Waiting for images to upload" : "Create the issue on GitHub  ⌘↩"
     }
 
     private func labelToggle(_ label: GitHubLabel) -> some View {

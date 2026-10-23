@@ -105,6 +105,56 @@ final class GitHubClientTests: XCTestCase {
         }
     }
 
+    func testUploadImagePostsBytesAgainstRepositoryID() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        var upload: (method: String?, host: String?, path: String?, query: [String: String], type: String?, auth: String?, body: Data)?
+        var repositoryLookups = 0
+        StubProtocol.handler = { request in
+            if request.url?.host == "api.github.com" {
+                repositoryLookups += 1
+                XCTAssertEqual(request.url?.path, "/repos/acme-type/halden-sans")
+                return (200, [:], Data(#"{"id": 81234, "name": "halden-sans"}"#.utf8))
+            }
+            let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            upload = (
+                request.httpMethod, request.url?.host, request.url?.path,
+                Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") }),
+                request.value(forHTTPHeaderField: "Content-Type"), request.value(forHTTPHeaderField: "Authorization"),
+                StubProtocol.bodyData(of: request)
+            )
+            return (201, [:], Data(#"{"url": "https://github.com/user-attachments/assets/0b7e-41c2"}"#.utf8))
+        }
+        let client = client(token: "secret")
+        let image = ImageAttachment(data: png, fileName: "image.png", contentType: "image/png")
+        let url = try await client.uploadImage(image, to: repo)
+        _ = try await client.uploadImage(image, to: repo)
+
+        XCTAssertEqual(url.absoluteString, "https://github.com/user-attachments/assets/0b7e-41c2")
+        XCTAssertEqual(upload?.method, "POST")
+        XCTAssertEqual(upload?.host, "uploads.github.com")
+        XCTAssertEqual(upload?.path, "/user-attachments/assets")
+        XCTAssertEqual(upload?.query, ["name": "image.png", "content_type": "image/png", "repository_id": "81234"])
+        XCTAssertEqual(upload?.type, "application/octet-stream")
+        XCTAssertEqual(upload?.auth, "Bearer secret")
+        XCTAssertEqual(upload?.body, png)
+        XCTAssertEqual(repositoryLookups, 1, "the repository id is looked up once")
+    }
+
+    func testUploadWithoutWriteAccessIsNotFound() async {
+        StubProtocol.handler = { request in
+            request.url?.host == "api.github.com"
+                ? (200, [:], Data(#"{"id": 81234}"#.utf8))
+                : (404, [:], Data(#"{"message":"Not Found"}"#.utf8))
+        }
+        let image = ImageAttachment(data: Data([1]), fileName: "image.png", contentType: "image/png")
+        do {
+            _ = try await client(token: "read-only").uploadImage(image, to: repo)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? GitHubError, .notFound)
+        }
+    }
+
     // MARK: - Helpers
 
     private func client(token: String?) -> GitHubClient {
@@ -149,8 +199,12 @@ final class StubProtocol: URLProtocol {
         jsonObject(of: request).compactMapValues { $0 as? String }
     }
 
-    /// URLSession moves the body into a stream before it reaches a protocol.
     static func jsonObject(of request: URLRequest) -> [String: Any] {
+        (try? JSONSerialization.jsonObject(with: bodyData(of: request)) as? [String: Any]) ?? [:]
+    }
+
+    /// URLSession moves the body into a stream before it reaches a protocol.
+    static func bodyData(of request: URLRequest) -> Data {
         var data = request.httpBody ?? Data()
         if data.isEmpty, let stream = request.httpBodyStream {
             stream.open()
@@ -162,6 +216,6 @@ final class StubProtocol: URLProtocol {
                 data.append(buffer, count: count)
             }
         }
-        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        return data
     }
 }

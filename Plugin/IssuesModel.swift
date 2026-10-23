@@ -58,6 +58,14 @@ final class IssuesModel: ObservableObject {
     @Published var actionError: ActionError?
     /// Unsent comments, per issue.
     @Published var commentDrafts: [Int: String] = [:]
+    /// Images uploading now, by the placeholder that stands in for each in its draft.
+    @Published private(set) var imageUploads: [String: DraftTarget] = [:]
+
+    /// A text being written: a comment on an issue, or the new issue's body.
+    enum DraftTarget: Hashable {
+        case comment(Int)
+        case newIssue
+    }
 
     // MARK: New issue
 
@@ -221,6 +229,7 @@ final class IssuesModel: ObservableObject {
         updatingIssues = []
         actionError = nil
         commentDrafts = [:]
+        imageUploads = [:]
         isComposingIssue = false
         newIssueLabels = []
         newIssueError = nil
@@ -512,7 +521,7 @@ final class IssuesModel: ObservableObject {
     }
 
     func postComment(on issue: GitHubIssue) {
-        guard hasDraft(for: issue) else { return }
+        guard hasDraft(for: issue), !isUploadingImages(into: .comment(issue.number)) else { return }
         submit(issue, comment: draft(for: issue), change: nil)
     }
 
@@ -528,6 +537,8 @@ final class IssuesModel: ObservableObject {
 
     private func submit(_ issue: GitHubIssue, comment: String?, change: StateChange?) {
         guard let repo, !updatingIssues.contains(issue.number) else { return }
+        // A comment would go out with “![Uploading …]()” in it.
+        if comment != nil, isUploadingImages(into: .comment(issue.number)) { return }
         let number = issue.number
         updatingIssues.insert(number)
         actionError = nil
@@ -586,6 +597,7 @@ final class IssuesModel: ObservableObject {
 
     var canCreateIssue: Bool {
         !newIssueTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreatingIssue
+            && !isUploadingImages(into: .newIssue)
     }
 
     func toggleNewIssueLabel(_ name: String) {
@@ -617,6 +629,103 @@ final class IssuesModel: ObservableObject {
                 self.newIssueError = self.describeChangeError(error, repo: repo)
             }
             self?.isCreatingIssue = false
+        }
+    }
+
+    // MARK: - Images
+
+    func isUploadingImages(into target: DraftTarget) -> Bool {
+        imageUploads.values.contains(target)
+    }
+
+    /// Starts uploading a pasted or dropped image and returns the placeholder
+    /// to put in the text, which the image's markdown replaces once it is
+    /// up. Nil when it can't be uploaded; the reason is shown with the draft.
+    func attach(_ image: ImageAttachment, to target: DraftTarget) -> String? {
+        guard let repo else { return nil }
+        guard canChangeIssues else {
+            report("Sign in from the repository menu to add images.", for: target)
+            return nil
+        }
+        guard !image.isTooLarge else {
+            report("\(image.fileName) is larger than 10 MB, GitHub’s limit for images.", for: target)
+            return nil
+        }
+        var number = 1
+        var placeholder = ImageAttachment.placeholder(for: image.fileName)
+        while imageUploads[placeholder] != nil || text(of: target).contains(placeholder) {
+            number += 1
+            placeholder = ImageAttachment.placeholder(for: image.fileName, number: number)
+        }
+        imageUploads[placeholder] = target
+        clearError(for: target)
+
+        let client = self.client
+        Task { [weak self] in
+            let result: Result<URL, Error>
+            do {
+                result = .success(try await client.uploadImage(image, to: repo))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self, repo == self.repo else { return }
+            self.imageUploads[placeholder] = nil
+            switch result {
+            case .success(let url):
+                self.replace(placeholder, with: image.markdown(url: url), in: target)
+            case .failure(let error):
+                // The placeholder came with a line of its own.
+                if !self.replace(placeholder + "\n", with: "", in: target) {
+                    self.replace(placeholder, with: "", in: target)
+                }
+                self.report(self.describeUploadError(error, image: image, repo: repo), for: target)
+            }
+        }
+        return placeholder
+    }
+
+    private func text(of target: DraftTarget) -> String {
+        switch target {
+        case .comment(let number): return commentDrafts[number] ?? ""
+        case .newIssue: return newIssueBody
+        }
+    }
+
+    /// Replaces the first `old` in the draft. False when the user has removed it.
+    @discardableResult
+    private func replace(_ old: String, with new: String, in target: DraftTarget) -> Bool {
+        let text = text(of: target)
+        guard let range = text.range(of: old) else { return false }
+        let replaced = text.replacingCharacters(in: range, with: new)
+        switch target {
+        case .comment(let number): commentDrafts[number] = replaced
+        case .newIssue: newIssueBody = replaced
+        }
+        return true
+    }
+
+    private func report(_ message: String, for target: DraftTarget) {
+        switch target {
+        case .comment(let number): actionError = ActionError(number: number, message: message)
+        case .newIssue: newIssueError = message
+        }
+    }
+
+    private func clearError(for target: DraftTarget) {
+        switch target {
+        case .comment(let number): if actionError?.number == number { actionError = nil }
+        case .newIssue: newIssueError = nil
+        }
+    }
+
+    private func describeUploadError(_ error: Error, image: ImageAttachment, repo: GitHubRepo) -> String {
+        switch error as? GitHubError {
+        case .notFound?, .forbidden(_)?:
+            return "Couldn’t upload \(image.fileName): adding images needs write access to \(repo)."
+        case .unauthorized?:
+            return "GitHub rejected the token. Sign in again from the repository menu."
+        default:
+            return "Couldn’t upload \(image.fileName). \(error.localizedDescription)"
         }
     }
 
