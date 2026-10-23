@@ -174,7 +174,7 @@ final class IssueImageCache {
     }
 }
 
-/// An attached image in a framed box with a caption bar, as in the mockup.
+/// An attached image, shown as it is: no frame, no caption.
 private struct IssueImage: View {
     let key: String
     let url: URL?
@@ -183,44 +183,26 @@ private struct IssueImage: View {
     @State private var failed = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if let image = loaded ?? IssueImageCache.shared.image(for: key) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 260)
-                        .frame(maxWidth: .infinity)
-                        .onTapGesture { if let url { NSWorkspace.shared.open(url) } }
-                        .help("Open image")
-                        .accessibilityLabel(caption)
-                } else if failed {
-                    status(symbol: "photo", text: "Image couldn’t be loaded")
-                } else {
-                    status(symbol: nil, text: "Loading image…")
-                }
+        Group {
+            if let image = loaded ?? IssueImageCache.shared.image(for: key) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 260)
+                    .onTapGesture { if let url { NSWorkspace.shared.open(url) } }
+                    .help("Open image")
+                    .accessibilityLabel(label)
+            } else if failed {
+                status(symbol: "photo", text: "Image couldn’t be loaded")
+            } else {
+                status(symbol: nil, text: "Loading image…")
             }
-            .task(id: key) { await load() }
-            HStack(spacing: 5) {
-                Image(systemName: "photo")
-                    .font(.system(size: 10))
-                Text(caption)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-            }
-            .font(.system(size: 10.5))
-            .foregroundColor(Style.secondaryText)
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .overlay(alignment: .top) { Rule() }
         }
-        .background(RoundedRectangle(cornerRadius: 8).fill(Style.cell))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Style.border, lineWidth: 1))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: key) { await load() }
     }
 
-    private var caption: String {
+    private var label: String {
         if !alt.isEmpty { return alt }
         return url?.lastPathComponent ?? "Image"
     }
@@ -258,7 +240,6 @@ private struct IssueImage: View {
         }
         .font(.system(size: 11))
         .foregroundColor(Style.secondaryText)
-        .frame(maxWidth: .infinity)
-        .frame(height: 90)
+        .padding(.vertical, 4)
     }
 }
