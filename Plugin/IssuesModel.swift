@@ -492,6 +492,23 @@ final class IssuesModel: ObservableObject {
         selectedIssueNumber = number
     }
 
+    /// Selects the issue `step` rows away in the list as shown (↑ and ↓ in
+    /// the split view), stopping at either end. False when no issue is
+    /// selected, so the key is left to others.
+    func moveSelection(by step: Int) -> Bool {
+        guard let current = selectedIssueNumber, !isComposingIssue else { return false }
+        let list = filteredIssues
+        let target: GitHubIssue?
+        if let index = list.firstIndex(where: { $0.number == current }) {
+            target = list.indices.contains(index + step) ? list[index + step] : nil
+        } else {
+            // Not in the list (stepped to by number, or filtered out): start from an end.
+            target = step > 0 ? list.first : list.last
+        }
+        if let target { select(target.number) }
+        return true
+    }
+
     /// The issue with the next lower (`step` < 0) or higher number, whatever
     /// its state or the filters. Pull requests share the numbering and are
     /// skipped.

@@ -244,14 +244,22 @@ struct IssueListView: View {
             if issues.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: style == .sidebar ? 2 : 0) {
-                        ForEach(issues) { issue in
-                            IssueRow(issue: issue, model: model, style: style)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: style == .sidebar ? 2 : 0) {
+                            ForEach(issues) { issue in
+                                IssueRow(issue: issue, model: model, style: style)
+                            }
                         }
+                        .padding(.horizontal, style == .sidebar ? 6 : 0)
+                        .padding(.vertical, style == .sidebar ? 4 : 0)
                     }
-                    .padding(.horizontal, style == .sidebar ? 6 : 0)
-                    .padding(.vertical, style == .sidebar ? 4 : 0)
+                    // Keeps the selection in view as ↑/↓ or the stepper move it;
+                    // a row that is already visible doesn't scroll.
+                    .onChange(of: model.selectedIssueNumber) { number in
+                        guard style == .sidebar, let id = issues.first(where: { $0.number == number })?.id else { return }
+                        proxy.scrollTo(id)
+                    }
                 }
             }
         }
@@ -361,7 +369,12 @@ struct IssueRow: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { model.select(issue.number) }
+        .onTapGesture {
+            // As in a list, the click ends typing in the search field,
+            // so ↑ and ↓ move through the issues next.
+            model.window?.makeFirstResponder(nil)
+            model.select(issue.number)
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.select(issue.number) }

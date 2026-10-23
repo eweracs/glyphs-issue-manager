@@ -41,7 +41,8 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   hides the events.
 - **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes
   to the issue numbered just below or above, open or closed, whatever the
-  filters.
+  filters. In the split view, ↑ and ↓ go to the issue above or below in the
+  list, as filtered (except while you type in a field).
 - **Close and reopen issues.** **Close issue** closes as completed; its menu
   also offers **Close as Not Planned**, as on GitHub. Closed issues show
   **Reopen issue**. In the compact palette the button sits in the bar at the

@@ -14,6 +14,8 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
     private var panel: IssuesPanel?
     private let model = IssuesModel()
     private let chrome = WindowChrome()
+    /// List and detail side by side.
+    private var isWide = false
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -54,7 +56,13 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
 
         chrome.onLayoutChange = { [weak self] wide in
             guard let self, let panel = self.panel else { return }
+            self.isWide = wide
             self.apply(wide ? Self.wideBar : Self.compactBar, to: panel)
+        }
+        // ↑ and ↓ go through the list beside the open issue.
+        panel.onVerticalArrow = { [weak self] step in
+            guard let self, self.isWide else { return false }
+            return self.model.moveSelection(by: step)
         }
         let hosting = PanelHostingView(rootView: RootView(model: model, chrome: chrome))
         hosting.sizingOptions = []
@@ -174,13 +182,33 @@ final class IssuesPanel: NSPanel {
         layoutTrafficLights()
     }
 
-    /// Become key first, so the click that focuses the panel also reaches the
-    /// row or button under it instead of being used up on focusing.
+    /// ↑ (-1) or ↓ (1) pressed while no text is being edited; returns
+    /// whether it was used.
+    var onVerticalArrow: ((Int) -> Bool)?
+
     override func sendEvent(_ event: NSEvent) {
+        // Become key first, so the click that focuses the panel also reaches
+        // the row or button under it instead of being used up on focusing.
         if event.type == .leftMouseDown, !isKeyWindow, canBecomeKey {
             makeKey()
         }
+        // Text fields and the comment box keep their arrow keys.
+        if event.type == .keyDown, !(firstResponder is NSText),
+           let step = Self.verticalStep(of: event), onVerticalArrow?(step) == true {
+            return
+        }
         super.sendEvent(event)
+    }
+
+    private static func verticalStep(of event: NSEvent) -> Int? {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard modifiers.isEmpty else { return nil }
+        switch event.keyCode {
+        case 126: return -1  // ↑
+        case 125: return 1  // ↓
+        default: return nil
+        }
     }
 
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
