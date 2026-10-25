@@ -1,7 +1,14 @@
 # GitHub Issues for Glyphs
 
-A Swift plugin for Glyphs 3 that shows the GitHub issues of the font you're
-working on in a floating panel. Open it with **Window → GitHub Issues**.
+A Swift plugin for Glyphs 3 and Glyphs 4 that shows the GitHub issues of the
+font you're working on in a floating panel. Open it with **Window → GitHub
+Issues**.
+
+**Install:** download `GitHubIssues.zip` from the
+[latest release](https://github.com/eweracs/glyphs-issue-manager/releases/latest),
+unzip it and double-click `GitHubIssuesG3.glyphsPlugin` (Glyphs 3) or
+`GitHubIssuesG4.glyphsPlugin` (Glyphs 4). Then restart Glyphs. Needs macOS 13
+or later.
 
 - **Finds the repository by itself.** It walks up from the font file
   (`.glyphs` or `.glyphspackage`) to the enclosing git repository and reads its
@@ -111,17 +118,20 @@ to the panel after a minute or more.
 
 ## Build & install
 
-Requirements: Glyphs 3 (for `GlyphsCore.framework`), Xcode or the Xcode
-command-line tools, macOS 13 or later.
+Requirements: the Glyphs version to build for (for its headers), Xcode or the
+Xcode command-line tools, macOS 13 or later.
 
 ```sh
-./build.command            # builds build/GitHubIssues.glyphsPlugin
-./build.command install    # …and copies it into the Glyphs 3 Plugins folder
+./build.command                     # builds build/GitHubIssues.glyphsPlugin for Glyphs 3
+./build.command install             # …and copies it into the Glyphs 3 Plugins folder
+GLYPHS=4 ./build.command install    # the same for Glyphs 4 (build/Glyphs 4/)
 ```
 
 Restart Glyphs after installing. `GLYPHS_APP`, `GLYPHS_PLUGINS` and `ARCHS`
 override the Glyphs app to compile against, the Plugins folder to install to,
-and the architectures to build (default `arm64 x86_64`).
+and the architectures to build (default `arm64 x86_64`); the comment at the top
+of `build.command` lists the rest. Releases are cut with `release.command`; see
+[RELEASING.md](RELEASING.md).
 
 ## Layout of the code
 
@@ -139,13 +149,18 @@ Plugin/              the Glyphs plugin (AppKit, SwiftUI, GlyphsCore)
   IssuesPanelController.swift the floating NSPanel
   IssuesModel.swift           state: font, repository, issues, filters, selection
   GlyphsContext.swift         current font, glyph and master; outlines; Edit tabs
+  GlyphsCompat.swift          the few Glyphs 3 / Glyphs 4 API differences
   TokenStore.swift            Keychain and gh CLI tokens
   Views/                      SwiftUI views
 Tests/IssueCoreTests/
+GitHubIssuesG3.glyphsPlugin  the released Glyphs 3 build, for the Plugin Manager
+build.command        builds the plugin; release.command cuts a release
+CHANGELOG.md         release notes; RELEASING.md describes the process
 ```
 
 `build.command` compiles `Sources/IssueCore` and `Plugin` together with `swiftc`
-against the GlyphsCore headers inside Glyphs.app and links with
+against the headers inside Glyphs.app (GlyphsCore, and GlyphsApp in Glyphs 4)
+and links with
 `-undefined dynamic_lookup`; SwiftPM is only used to test the core.
 
 ## Limitations
@@ -160,4 +175,5 @@ against the GlyphsCore headers inside Glyphs.app and links with
   “mentioned this in” line; the duplicate line has no number.
 - Glyphs posts no notification for selection changes, so the current glyph is
   polled while the panel is open, a few times a second.
-- Built against Glyphs 3.5. Glyphs 4 is untested.
+- Tried in Glyphs 3.5.1. The Glyphs 4 build compiles against Glyphs 4.1.1 but
+  hasn't been tried in it yet.

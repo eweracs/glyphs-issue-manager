@@ -18,22 +18,26 @@ enum GlyphsContext {
         document?.value(forKey: "font") as? GSFont
     }
 
-    static func windowController(of document: NSDocument?) -> GSWindowControllerProtocol? {
-        document?.windowControllers.lazy.compactMap { $0 as? GSWindowControllerProtocol }.first
+    static func windowController(of document: NSDocument?) -> GSWindowController? {
+        document?.windowControllers.lazy.compactMap { $0 as? GSWindowController }.first
+    }
+
+    private static func selectedLayers(in wc: GSWindowController) -> [GSLayer] {
+        (wc.selectedLayers as NSArray?)?.compactMap { $0 as? GSLayer } ?? []
     }
 
     /// The glyph being edited (Edit view) or selected (Font view).
     static func currentGlyphName(in document: NSDocument?) -> String? {
         guard let wc = windowController(of: document) else { return nil }
         if let layer = wc.activeLayer { return layer.parent?.name }
-        return wc.selectedLayers().lazy.compactMap { ($0 as? GSLayer)?.parent?.name }.first
+        return selectedLayers(in: wc).lazy.compactMap { $0.parent?.name }.first
     }
 
     /// The glyphs selected in the Font view, or in the Edit view's text in
     /// their order there; the glyph being edited when nothing else is.
     static func selectedGlyphNames(in document: NSDocument?) -> [String] {
         guard let wc = windowController(of: document) else { return [] }
-        let names = wc.selectedLayers().compactMap { ($0 as? GSLayer)?.parent?.name }
+        let names = selectedLayers(in: wc).compactMap { $0.parent?.name }
         if !names.isEmpty { return names }
         return wc.activeLayer?.parent?.name.map { [$0] } ?? []
     }
@@ -58,12 +62,14 @@ enum GlyphsContext {
 
     static func outline(of name: String, in font: GSFont, master: GSFontMaster?) -> GlyphOutline? {
         guard let layer = layer(of: name, in: font, masterID: master?.id) else { return nil }
-        let path = layer.drawBezierPath()
+        // Optional in Glyphs 4, not in Glyphs 3.
+        let drawn: NSBezierPath? = layer.drawBezierPath()
+        let path = drawn.flatMap { $0.isEmpty ? nil : $0 }
         let ascender = master?.ascender(for: layer) ?? CGFloat(font.unitsPerEm) * 0.8
         let descender = master?.descender(for: layer) ?? -CGFloat(font.unitsPerEm) * 0.2
         return GlyphOutline(
-            path: path.isEmpty ? nil : path.cgPathCompat,
-            bounds: path.isEmpty ? .zero : path.bounds,
+            path: path?.cgPathCompat,
+            bounds: path?.bounds ?? .zero,
             advance: layer.width,
             ascender: ascender,
             descender: descender
@@ -96,7 +102,7 @@ enum GlyphsContext {
             return false
         }
         wc.addTab(with: glyphs)
-        (wc as? NSWindowController)?.window?.makeKeyAndOrderFront(nil)
+        wc.window?.makeKeyAndOrderFront(nil)
         return true
     }
 }
