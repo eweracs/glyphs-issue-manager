@@ -50,7 +50,10 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = true
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.fullScreenAuxiliary]
+        // Panels are left out of Cycle Through Windows (⌘`, ⌘< on German
+        // keyboards); this one takes part, so it can be reached and closed
+        // (⌘W) from the keyboard.
+        panel.collectionBehavior = [.fullScreenAuxiliary, .participatesInCycle]
         panel.delegate = self
         apply(Self.compactBar, to: panel)
 
