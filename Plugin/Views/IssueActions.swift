@@ -31,7 +31,7 @@ struct IssueStateButton: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help(model.canChangeIssues ? "Close as completed" : signInHelp)
+                    .help(model.canChangeIssues ? "Close as completed" + (withComment ? ", posting the comment" : "") + "  ⇧⌘↩" : signInHelp)
 
                     Rectangle()
                         .fill(Style.fieldRing)
@@ -61,7 +61,7 @@ struct IssueStateButton: View {
                     }
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .help(model.canChangeIssues ? "Reopen this issue" : signInHelp)
+                .help(model.canChangeIssues ? "Reopen this issue" + (withComment ? ", posting the comment" : "") + "  ⇧⌘↩" : signInHelp)
             }
         }
         .fixedSize()

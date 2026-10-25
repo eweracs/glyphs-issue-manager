@@ -41,8 +41,7 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
   hides the events.
 - **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes
   to the issue numbered just below or above, open or closed, whatever the
-  filters. In the split view, ↑ and ↓ go to the issue above or below in the
-  list, as filtered (except while you type in a field).
+  filters. ↑ and ↓ go through the list as filtered (see **Keyboard**).
 - **Close and reopen issues.** **Close issue** closes as completed; its menu
   also offers **Close as Not Planned**, as on GitHub. Closed issues show
   **Reopen issue**. In the compact palette the button sits in the bar at the
@@ -68,6 +67,28 @@ working on in a floating panel. Open it with **Window → GitHub Issues**.
 
 Commenting, closing, creating and adding images need a sign-in (see below). Editing labels
 of existing issues happens on GitHub (**Open on GitHub**).
+
+## Keyboard
+
+The panel can be used without the mouse. Cycle Through Windows (⌘`, ⌘< on
+German keyboards) reaches it as it does the font windows, and ⌘W closes it.
+While it is the key window:
+
+| Key | |
+| --- | --- |
+| Tab, ⇧Tab | next or previous of search field, issue list and comment box (in a new issue: title and description) |
+| ↑ ↓ | the issue above or below in the list (in the compact palette they move a highlight); ↓ in the search field goes on to the list |
+| Return | open the highlighted issue (compact palette); with an issue open, go to its comment box |
+| Esc | out of the comment box; then back to the list (compact) or cancel a new issue |
+| ⌘↩ | post the comment, or create the issue |
+| ⇧⌘↩ | close the issue, or reopen it, posting the comment if there is one |
+| ⌥⌘← ⌥⌘→ | the issue numbered just below or above |
+| ⌘F | search |
+| ⌘N | new issue |
+| ⌘R | refresh |
+
+⌘F, ⌘N and ⌘R act on the panel only while it is the key window; in the font
+windows they are Glyphs' own.
 
 ## Signing in
 

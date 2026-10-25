@@ -62,10 +62,9 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
             self.isWide = wide
             self.apply(wide ? Self.wideBar : Self.compactBar, to: panel)
         }
-        // ↑ and ↓ go through the list beside the open issue.
-        panel.onVerticalArrow = { [weak self] step in
-            guard let self, self.isWide else { return false }
-            return self.model.moveSelection(by: step)
+        panel.onKey = { [weak self] key in
+            guard let self else { return false }
+            return self.model.handle(key, wide: self.isWide)
         }
         let hosting = PanelHostingView(rootView: RootView(model: model, chrome: chrome))
         hosting.sizingOptions = []
@@ -136,6 +135,18 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
     }
 }
 
+/// Keys the panel acts on itself, ahead of the focused view and Glyphs' menus.
+enum PanelKey {
+    /// Tab or ⇧Tab: the next or previous of search, list and comment box.
+    case tab(backward: Bool)
+    /// ↑ (-1) or ↓ (1); `inField` while a text field has focus.
+    case arrow(step: Int, inField: Bool)
+    /// Return outside text fields.
+    case confirm
+    /// ⌘F, ⌘N, ⌘R, ⇧⌘↩.
+    case find, newIssue, refresh, closeOrReopen
+}
+
 /// A panel whose transparent title bar is as tall as the mockup's top bar,
 /// with the traffic lights centred in it. The content (RootView) draws the
 /// bar itself underneath.
@@ -185,9 +196,9 @@ final class IssuesPanel: NSPanel {
         layoutTrafficLights()
     }
 
-    /// ↑ (-1) or ↓ (1) pressed while no text is being edited; returns
-    /// whether it was used.
-    var onVerticalArrow: ((Int) -> Bool)?
+    /// Keys for the panel to act on (IssuesModel.handle); returns whether
+    /// it did. They come here before the focused view and Glyphs' menus.
+    var onKey: ((PanelKey) -> Bool)?
 
     override func sendEvent(_ event: NSEvent) {
         // Become key first, so the click that focuses the panel also reaches
@@ -195,21 +206,47 @@ final class IssuesPanel: NSPanel {
         if event.type == .leftMouseDown, !isKeyWindow, canBecomeKey {
             makeKey()
         }
-        // Text fields and the comment box keep their arrow keys.
-        if event.type == .keyDown, !(firstResponder is NSText),
-           let step = Self.verticalStep(of: event), onVerticalArrow?(step) == true {
+        if event.type == .keyDown, let key = Self.key(for: event, inField: firstResponder is NSText), onKey?(key) == true {
             return
         }
         super.sendEvent(event)
     }
 
-    private static func verticalStep(of event: NSEvent) -> Int? {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard modifiers.isEmpty else { return nil }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let key = Self.commandKey(for: event), onKey?(key) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    private static func modifiers(of event: NSEvent) -> NSEvent.ModifierFlags {
+        event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
+    }
+
+    /// Tab everywhere; arrows and Return only outside text fields, which
+    /// keep them (except ↓ in the search field, which the model decides on).
+    private static func key(for event: NSEvent, inField: Bool) -> PanelKey? {
+        let modifiers = modifiers(of: event)
         switch event.keyCode {
-        case 126: return -1  // ↑
-        case 125: return 1  // ↓
+        case 48 where modifiers.isEmpty || modifiers == .shift:  // Tab
+            return .tab(backward: modifiers == .shift)
+        case 126 where modifiers.isEmpty:  // ↑
+            return .arrow(step: -1, inField: inField)
+        case 125 where modifiers.isEmpty:  // ↓
+            return .arrow(step: 1, inField: inField)
+        case 36 where modifiers.isEmpty && !inField, 76 where modifiers.isEmpty && !inField:  // Return, Enter
+            return .confirm
+        default:
+            return nil
+        }
+    }
+
+    private static func commandKey(for event: NSEvent) -> PanelKey? {
+        let modifiers = modifiers(of: event)
+        if modifiers == [.command, .shift], event.keyCode == 36 || event.keyCode == 76 { return .closeOrReopen }
+        guard modifiers == .command else { return nil }
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "f": return .find
+        case "n": return .newIssue
+        case "r": return .refresh
         default: return nil
         }
     }

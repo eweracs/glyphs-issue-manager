@@ -8,6 +8,8 @@ struct ComposerEditor: View {
     let placeholder: String
     var minHeight: CGFloat = 36
     var maxHeight: CGFloat = 160
+    /// Kept in step with the text view's focus, both ways.
+    var isFocused: Binding<Bool>?
     var onImage: ((ImageAttachment) -> String?)?
     @State private var focused = false
 
@@ -21,7 +23,10 @@ struct ComposerEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundColor(.clear)
                 .accessibilityHidden(true)
-            ComposerTextView(text: $text, onImage: onImage) { focused = $0 }
+            ComposerTextView(text: $text, onImage: onImage, wantsFocus: isFocused?.wrappedValue ?? false) { value in
+                focused = value
+                if let isFocused, isFocused.wrappedValue != value { isFocused.wrappedValue = value }
+            }
             if text.isEmpty {
                 Text(placeholder)
                     .font(.system(size: 13))
@@ -102,7 +107,10 @@ struct CommentBar: View {
     var body: some View {
         let draft = Binding(get: { model.draft(for: issue) }, set: { model.commentDrafts[issue.number] = $0 })
         VStack(spacing: 8) {
-            ComposerEditor(text: draft, placeholder: "Leave a comment", minHeight: 34, maxHeight: 150) {
+            ComposerEditor(
+                text: draft, placeholder: "Leave a comment", minHeight: 34, maxHeight: 150,
+                isFocused: model.focusBinding(for: .comment)
+            ) {
                 model.attach($0, to: .comment(issue.number))
             }
             .disabled(!model.canChangeIssues)
@@ -142,7 +150,10 @@ struct CommentBox: View {
     var body: some View {
         let draft = Binding(get: { model.draft(for: issue) }, set: { model.commentDrafts[issue.number] = $0 })
         VStack(alignment: .leading, spacing: 8) {
-            ComposerEditor(text: draft, placeholder: "Leave a comment", minHeight: 72, maxHeight: 240) {
+            ComposerEditor(
+                text: draft, placeholder: "Leave a comment", minHeight: 72, maxHeight: 240,
+                isFocused: model.focusBinding(for: .comment)
+            ) {
                 model.attach($0, to: .comment(issue.number))
             }
             .disabled(!model.canChangeIssues)
@@ -159,6 +170,7 @@ struct CommentBox: View {
                     }
                     .buttonStyle(SecondaryButtonStyle())
                     .disabled(model.updatingIssues.contains(issue.number) || model.isUploadingImages(into: .comment(issue.number)))
+                    .help("Post the comment and \(issue.isOpen ? "close" : "reopen") the issue  ⇧⌘↩")
                 }
                 CommentButton(issue: issue, model: model)
             }
@@ -248,7 +260,8 @@ struct NewIssueView: View {
                             text: $model.newIssueBody,
                             placeholder: "Describe the issue. Mention glyphs as /a or /adieresis; paste or drop images.",
                             minHeight: compact ? 150 : 180,
-                            maxHeight: compact ? 320 : 420
+                            maxHeight: compact ? 320 : 420,
+                            isFocused: model.focusBinding(for: .newIssueBody)
                         ) {
                             model.attach($0, to: .newIssue)
                         }
@@ -302,7 +315,18 @@ struct NewIssueView: View {
         .background(Style.content)
         .onAppear {
             // Focus has to wait until the field is in the window.
-            DispatchQueue.main.async { titleFocused = model.newIssueTitle.isEmpty }
+            if model.focusedField == .newIssueTitle { DispatchQueue.main.async { titleFocused = true } }
+        }
+        // The title's focus and the model's, kept in step both ways.
+        .onChange(of: titleFocused) { focused in
+            if focused {
+                model.focusedField = .newIssueTitle
+            } else if model.focusedField == .newIssueTitle {
+                model.focusedField = nil
+            }
+        }
+        .onChange(of: model.focusedField) { field in
+            if (field == .newIssueTitle) != titleFocused { titleFocused = field == .newIssueTitle }
         }
     }
 

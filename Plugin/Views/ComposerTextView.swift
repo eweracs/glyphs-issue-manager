@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var onImage: ((ImageAttachment) -> String?)?
+    /// Takes focus when this turns true (Tab, Return, ⌘N).
+    var wantsFocus = false
     var onFocusChange: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -56,12 +58,24 @@ struct ComposerTextView: NSViewRepresentable {
             textView.apply(text)
             context.coordinator.isApplying = false
         }
+        // Only when asked anew, so a request that is out of date doesn't
+        // take focus back from where the user has clicked since.
+        if wantsFocus, !context.coordinator.wantedFocus {
+            // Later: a new text view isn't in its window yet, and SwiftUI may
+            // still be moving focus out of another field.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, let window = textView.window, window.firstResponder !== textView else { return }
+                window.makeFirstResponder(textView)
+            }
+        }
+        context.coordinator.wantedFocus = wantsFocus
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         /// Set while a change from outside is applied, which needn't go back.
         var isApplying = false
+        var wantedFocus = false
 
         init(text: Binding<String>) {
             self.text = text
@@ -92,6 +106,12 @@ final class ImageAcceptingTextView: NSTextView {
         let resigned = super.resignFirstResponder()
         if resigned { notifyFocus(false) }
         return resigned
+    }
+
+    /// Esc leaves the text (a second Esc then goes back or cancels), rather
+    /// than offering word completions.
+    override func cancelOperation(_ sender: Any?) {
+        window?.makeFirstResponder(nil)
     }
 
     /// Later, so SwiftUI isn't told in the middle of an update.

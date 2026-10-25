@@ -5,6 +5,8 @@ import SwiftUI
 struct SearchField: View {
     @Binding var text: String
     var placeholder: String
+    /// Kept in step with the field's focus, both ways.
+    var isFocused: Binding<Bool>?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -39,6 +41,16 @@ struct SearchField: View {
                 .strokeBorder(focused ? Color.accentColor.opacity(0.55) : Style.fieldRing, lineWidth: focused ? 2 : 0.5)
         )
         .shadow(color: .black.opacity(0.04), radius: 0.5, y: 1)
+        .onChange(of: focused) { value in
+            if let isFocused, isFocused.wrappedValue != value { isFocused.wrappedValue = value }
+        }
+        .onChange(of: isFocused?.wrappedValue ?? false) { value in
+            if value != focused { focused = value }
+        }
+        .onAppear {
+            // Focus asked for before the field was on screen (⌘F from an issue).
+            if isFocused?.wrappedValue == true { DispatchQueue.main.async { focused = true } }
+        }
     }
 }
 

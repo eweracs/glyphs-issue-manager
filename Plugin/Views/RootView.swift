@@ -123,7 +123,7 @@ struct NewIssueButton: View {
         }
         .buttonStyle(.plain)
         .disabled(model.phase != .ready)
-        .help(model.canChangeIssues ? "New issue" : "New issue (sign in to create it)")
+        .help(model.canChangeIssues ? "New issue  ⌘N" : "New issue (sign in to create it)  ⌘N")
         .accessibilityLabel("New issue")
     }
 }
@@ -150,7 +150,7 @@ struct RefreshButton: View {
         }
         .buttonStyle(.plain)
         .disabled(model.isRefreshing || model.repo == nil)
-        .help("Refresh")
+        .help("Refresh  ⌘R")
         .accessibilityLabel("Refresh")
     }
 }

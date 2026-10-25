@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SwiftUI
 
 /// Everything the panel shows: which font and repository are current, the
 /// repository's issues, the user's filters and the selected issue.
@@ -90,6 +91,17 @@ final class IssuesModel: ObservableObject {
     }
     @Published var selectedLabels: Set<String> = []
     @Published var searchText = ""
+    /// The issue ↑ and ↓ have reached in the compact list; Return opens it.
+    @Published private(set) var highlightedIssueNumber: Int?
+    /// The text field with keyboard focus, as the fields report it; nil when
+    /// none has it, and ↑, ↓ and Return go to the list. Setting it moves
+    /// focus there (`focus(_:)` also takes it out of a field).
+    @Published var focusedField: Field?
+
+    enum Field: Hashable {
+        case search, comment, newIssueTitle, newIssueBody
+    }
+
     @Published var selectedIssueNumber: Int? {
         didSet {
             guard let number = selectedIssueNumber, number != oldValue else { return }
@@ -489,24 +501,10 @@ final class IssuesModel: ObservableObject {
 
     func select(_ number: Int?) {
         isComposingIssue = false
+        // Back in the compact list, the highlight is on the issue just left.
+        if let highlight = number ?? selectedIssueNumber { highlightedIssueNumber = highlight }
+        if number == nil, focusedField == .comment { focusedField = nil }
         selectedIssueNumber = number
-    }
-
-    /// Selects the issue `step` rows away in the list as shown (↑ and ↓ in
-    /// the split view), stopping at either end. False when no issue is
-    /// selected, so the key is left to others.
-    func moveSelection(by step: Int) -> Bool {
-        guard let current = selectedIssueNumber, !isComposingIssue else { return false }
-        let list = filteredIssues
-        let target: GitHubIssue?
-        if let index = list.firstIndex(where: { $0.number == current }) {
-            target = list.indices.contains(index + step) ? list[index + step] : nil
-        } else {
-            // Not in the list (stepped to by number, or filtered out): start from an end.
-            target = step > 0 ? list.first : list.last
-        }
-        if let target { select(target.number) }
-        return true
     }
 
     /// The issue with the next lower (`step` < 0) or higher number, whatever
@@ -605,11 +603,13 @@ final class IssuesModel: ObservableObject {
     func startNewIssue() {
         newIssueError = nil
         isComposingIssue = true
+        focusedField = newIssueTitle.isEmpty ? .newIssueTitle : .newIssueBody
     }
 
     /// Leaves the form; what was typed is kept for next time.
     func cancelNewIssue() {
         isComposingIssue = false
+        if focusedField == .newIssueTitle || focusedField == .newIssueBody { focusedField = nil }
     }
 
     var canCreateIssue: Bool {
@@ -647,6 +647,140 @@ final class IssuesModel: ObservableObject {
             }
             self?.isCreatingIssue = false
         }
+    }
+
+    // MARK: - Keyboard
+
+    /// Acts on a key the panel passed on (IssuesPanel); false leaves it to
+    /// the focused view or Glyphs.
+    func handle(_ key: PanelKey, wide: Bool) -> Bool {
+        if case .refresh = key {
+            guard repo != nil, !isRefreshing else { return false }
+            reload()
+            return true
+        }
+        guard phase == .ready else { return false }
+        switch key {
+        case .tab(let backward):
+            moveFocus(forward: !backward, wide: wide)
+            return true
+        case .arrow(let step, let inField):
+            guard inField else { return moveInList(by: step, wide: wide) }
+            // ↓ from the search field goes on to the results.
+            guard focusedField == .search, step > 0 else { return false }
+            focus(nil)
+            if !wide, highlightedIssue == nil {
+                highlightedIssueNumber = filteredIssues.first?.number
+            } else if wide, selectedIssueNumber == nil, let first = filteredIssues.first {
+                select(first.number)
+            }
+            return true
+        case .confirm:
+            return confirm(wide: wide)
+        case .find:
+            if !wide, selectedIssueNumber != nil || isComposingIssue { select(nil) }
+            focus(.search)
+            return true
+        case .newIssue:
+            startNewIssue()
+            return true
+        case .closeOrReopen:
+            guard let issue = selectedIssue, !isComposingIssue, canChangeIssues else { return false }
+            if issue.isOpen {
+                close(issue, reason: .completed, postingDraft: true)
+            } else {
+                reopen(issue, postingDraft: true)
+            }
+            return true
+        case .refresh:
+            return false
+        }
+    }
+
+    /// Moves keyboard focus to a field, or (nil) out of the fields to the list.
+    func focus(_ field: Field?) {
+        focusedField = field
+        if field == nil { window?.makeFirstResponder(nil) }
+    }
+
+    /// Whether `field` has focus, for the field's own focus state to follow.
+    func focusBinding(for field: Field) -> Binding<Bool> {
+        Binding(
+            get: { self.focusedField == field },
+            set: { focused in
+                if focused {
+                    self.focusedField = field
+                } else if self.focusedField == field {
+                    self.focusedField = nil
+                }
+            }
+        )
+    }
+
+    /// The highlighted issue, if it is in the list as shown.
+    var highlightedIssue: GitHubIssue? {
+        highlightedIssueNumber.flatMap { number in filteredIssues.first { $0.number == number } }
+    }
+
+    /// Tab and ⇧Tab go round the fields on screen, with the list (nil) as
+    /// one of the stops.
+    private func moveFocus(forward: Bool, wide: Bool) {
+        var stops: [Field?] = []
+        if isComposingIssue {
+            if wide { stops += [.search, nil] }
+            stops += [.newIssueTitle, .newIssueBody]
+        } else if selectedIssueNumber != nil {
+            if wide { stops.append(.search) }
+            stops.append(nil)
+            if canChangeIssues { stops.append(.comment) }
+        } else {
+            stops += [.search, nil]
+        }
+        let next: Field?
+        if let index = stops.firstIndex(of: focusedField) {
+            next = stops[(index + (forward ? 1 : stops.count - 1)) % stops.count]
+        } else {
+            next = stops[forward ? 0 : stops.count - 1]
+        }
+        focus(next)
+        if next == nil, !wide, selectedIssueNumber == nil, !isComposingIssue, highlightedIssue == nil {
+            highlightedIssueNumber = filteredIssues.first?.number
+        }
+    }
+
+    /// ↑ and ↓ with no field focused. In the split view they move the
+    /// selection through the list as shown; in the compact list, the
+    /// highlight. Both stop at the ends.
+    private func moveInList(by step: Int, wide: Bool) -> Bool {
+        let list = filteredIssues
+        if wide {
+            if let next = neighbor(of: selectedIssueNumber, by: step, in: list) { select(next) }
+            return true
+        }
+        guard selectedIssueNumber == nil, !isComposingIssue else { return false }
+        if let next = neighbor(of: highlightedIssueNumber, by: step, in: list) { highlightedIssueNumber = next }
+        return true
+    }
+
+    private func neighbor(of number: Int?, by step: Int, in list: [GitHubIssue]) -> Int? {
+        if let number, let index = list.firstIndex(where: { $0.number == number }) {
+            return list.indices.contains(index + step) ? list[index + step].number : nil
+        }
+        // Nothing reached yet, or filtered out: start from an end.
+        return (step > 0 ? list.first : list.last)?.number
+    }
+
+    /// Return with no field focused: opens the highlighted issue in the
+    /// compact list; with an issue open, goes to its comment box.
+    private func confirm(wide: Bool) -> Bool {
+        if !wide, selectedIssueNumber == nil, !isComposingIssue {
+            guard let issue = highlightedIssue else { return false }
+            select(issue.number)
+            return true
+        }
+        guard selectedIssueNumber != nil, !isComposingIssue, canChangeIssues else { return false }
+        focus(.comment)
+        return true
     }
 
     // MARK: - Images

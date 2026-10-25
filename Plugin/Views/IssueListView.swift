@@ -16,7 +16,8 @@ struct CompactHeader: View {
                     BranchLabel(branch: branch)
                 }
             }
-            SearchField(text: $model.searchText, placeholder: "Search issues or /glyphname")
+            SearchField(text: $model.searchText, placeholder: "Search issues or /glyphname", isFocused: model.focusBinding(for: .search))
+                .help("Search issues  ⌘F")
             // The toggle gets narrower in steps, so the row always fits the
             // panel's minimum width, even with three-digit counts.
             ViewThatFits(in: .horizontal) {
@@ -69,7 +70,8 @@ struct WideTitleBar: View {
             GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: width >= 800 + glyphNameWidth)
             LabelFilterButton(model: model)
             // The search field gives up width before the repository name does.
-            SearchField(text: $model.searchText, placeholder: "Search")
+            SearchField(text: $model.searchText, placeholder: "Search", isFocused: model.focusBinding(for: .search))
+                .help("Search issues  ⌘F")
                 .frame(minWidth: 110, idealWidth: 200, maxWidth: 200)
             HStack(spacing: 0) {
                 NewIssueButton(model: model)
@@ -260,6 +262,16 @@ struct IssueListView: View {
                         guard style == .sidebar, let id = issues.first(where: { $0.number == number })?.id else { return }
                         proxy.scrollTo(id)
                     }
+                    // The compact list's highlight likewise, and back from an
+                    // issue the list opens where that issue is.
+                    .onChange(of: model.highlightedIssueNumber) { _ in
+                        guard style == .ruled, let id = model.highlightedIssue?.id else { return }
+                        proxy.scrollTo(id)
+                    }
+                    .onAppear {
+                        guard style == .ruled, let id = model.highlightedIssue?.id else { return }
+                        proxy.scrollTo(id)
+                    }
                 }
             }
         }
@@ -312,6 +324,9 @@ struct IssueRow: View {
         let related = model.relatedMentions(of: issue)
         let shown = Array(mentions.prefix(3))
         let selected = style == .sidebar && model.selectedIssueNumber == issue.number
+        // ↑, ↓ and Return act on the list while no field has focus.
+        let listFocused = model.focusedField == nil
+        let highlighted = style == .ruled && listFocused && model.highlightedIssueNumber == issue.number
 
         HStack(alignment: .top, spacing: 9) {
             StateIcon(issue: issue)
@@ -363,7 +378,7 @@ struct IssueRow: View {
         }
         .padding(.horizontal, style == .sidebar ? 10 : 12)
         .padding(.vertical, style == .sidebar ? 9 : 10)
-        .background(background(selected: selected))
+        .background(background(selected: selected, highlighted: highlighted, listFocused: listFocused))
         .overlay(alignment: .bottom) {
             if style == .ruled { Rule(color: Style.rowRule) }
         }
@@ -372,7 +387,7 @@ struct IssueRow: View {
         .onTapGesture {
             // As in a list, the click ends typing in the search field,
             // so ↑ and ↓ move through the issues next.
-            model.window?.makeFirstResponder(nil)
+            model.focus(nil)
             model.select(issue.number)
         }
         .accessibilityElement(children: .combine)
@@ -398,14 +413,23 @@ struct IssueRow: View {
     }
 
     @ViewBuilder
-    private func background(selected: Bool) -> some View {
+    private func background(selected: Bool, highlighted: Bool, listFocused: Bool) -> some View {
         switch style {
         case .ruled:
-            Rectangle().fill(hovering ? Style.rowHover : Style.content)
+            Rectangle()
+                .fill(hovering || highlighted ? Style.rowHover : Style.content)
+                .overlay(alignment: .leading) {
+                    if highlighted {
+                        Rectangle().fill(Color.accentColor).frame(width: 3)
+                    }
+                }
         case .sidebar:
             RoundedRectangle(cornerRadius: 8)
                 .fill(selected ? Style.selectedRow : (hovering ? Style.rowHover : Color.clear))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Style.accentRing : Color.clear, lineWidth: 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(selected ? (listFocused ? Style.accentRing : Style.fieldRing) : Color.clear, lineWidth: 1)
+                )
                 .shadow(color: .black.opacity(selected ? 0.06 : 0), radius: 1.5, y: 1)
         }
     }
