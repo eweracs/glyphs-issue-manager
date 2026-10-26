@@ -23,7 +23,7 @@ final class GitHubIssuesPlugin: NSObject, GlyphsPlugin, NSMenuItemValidation {
             let controller = IssuesPanelController()
             panelController = controller
             if Defaults.panelWasVisible {
-                DispatchQueue.main.async { controller.show() }
+                DispatchQueue.main.async { controller.show(makingKey: false) }
             }
         }
     }

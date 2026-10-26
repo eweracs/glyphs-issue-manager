@@ -179,6 +179,8 @@ public struct ActivityEvent: Hashable, Identifiable {
 
 public struct ActivityComment: Hashable, Identifiable {
     public let id: String
+    /// GitHub's id for the comment, for editing and deleting it.
+    public let commentID: Int?
     public let author: GitHubUser?
     public let createdAt: Date
     public let body: String?
@@ -235,7 +237,7 @@ public enum ActivityBuilder {
 
             if entry.event == "commented" {
                 items.append(.comment(ActivityComment(
-                    id: id, author: entry.user ?? entry.actor, createdAt: date,
+                    id: id, commentID: entry.id, author: entry.user ?? entry.actor, createdAt: date,
                     body: entry.body, bodyHTML: entry.bodyHTML, htmlURL: entry.htmlURL
                 )))
                 continue

@@ -63,6 +63,9 @@ final class TimelineTests: XCTestCase {
         }
         // `subscribed` is left out; the second reference to the same commit too.
         XCTAssertEqual(kinds, ["changes", "renamed", "comment", "referenced", "closed", "reopened", "cross-referenced", "closed-not-planned"])
+
+        guard case .comment(let comment) = items[2] else { return XCTFail("expected the comment third") }
+        XCTAssertEqual(comment.commentID, 6, "the comment keeps GitHub's id, for editing and deleting")
     }
 
     func testMergesChangesBySamePersonInWindow() throws {

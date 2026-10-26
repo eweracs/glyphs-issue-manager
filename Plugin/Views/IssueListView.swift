@@ -35,8 +35,11 @@ struct CompactHeader: View {
     private func filterRow(showsTitle: Bool, nameWidth: CGFloat?) -> some View {
         let counts = model.counts
         return HStack(spacing: 6) {
-            StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed)
-            GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: showsTitle, nameWidth: nameWidth)
+            StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed, isFocused: model.focusedField == .stateFilter)
+            GlyphFilterToggle(
+                isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: showsTitle, nameWidth: nameWidth,
+                isFocused: model.focusedField == .glyphFilter
+            )
             Spacer(minLength: 0)
             LabelFilterButton(model: model)
         }
@@ -66,8 +69,11 @@ struct WideTitleBar: View {
             .layoutPriority(1)
             Spacer(minLength: 8)
                 .allowsHitTesting(false)
-            StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed)
-            GlyphFilterToggle(isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: width >= 800 + glyphNameWidth)
+            StateSegments(selection: $model.stateFilter, open: counts.open, closed: counts.closed, isFocused: model.focusedField == .stateFilter)
+            GlyphFilterToggle(
+                isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: width >= 800 + glyphNameWidth,
+                isFocused: model.focusedField == .glyphFilter
+            )
             LabelFilterButton(model: model)
             // The search field gives up width before the repository name does.
             SearchField(text: $model.searchText, placeholder: "Search", isFocused: model.focusBinding(for: .search))
@@ -103,7 +109,11 @@ struct RepositoryButton: View {
     @ObservedObject var model: IssuesModel
 
     var body: some View {
-        PopUpMenuButton(items: menuItems) {
+        PopUpMenuButton(
+            items: menuItems,
+            isRequested: model.menuRequest == .repository,
+            takeRequest: { model.takeMenuRequest(.repository) }
+        ) {
             HStack(spacing: 6) {
                 Image(systemName: "book.closed")
                     .font(.system(size: 12.5))
@@ -118,6 +128,7 @@ struct RepositoryButton: View {
                     .foregroundColor(Style.secondaryText)
             }
             .padding(.vertical, 3)
+            .keyboardFocusRing(model.focusedField == .repository, cornerRadius: 4)
         }
         .help(model.repoIsOverride ? "Chosen by hand for this font" : "Detected from the font’s git remote")
         .accessibilityLabel("Repository \(model.repo?.description ?? "")")
@@ -172,11 +183,16 @@ struct LabelFilterButton: View {
     @ObservedObject var model: IssuesModel
 
     var body: some View {
-        PopUpMenuButton(items: menuItems) {
+        PopUpMenuButton(
+            items: menuItems,
+            isRequested: model.menuRequest == .labels,
+            takeRequest: { model.takeMenuRequest(.labels) }
+        ) {
             Image(systemName: model.selectedLabels.isEmpty ? "tag" : "tag.fill")
                 .font(.system(size: 13))
                 .foregroundColor(model.selectedLabels.isEmpty ? Style.icon : .accentColor)
                 .frame(width: 28, height: 26)
+                .keyboardFocusRing(model.focusedField == .labels)
         }
         .help(model.selectedLabels.isEmpty ? "Filter by label" : "Filtered by \(model.selectedLabels.sorted().joined(separator: ", "))")
         .accessibilityLabel("Filter by label")
@@ -265,7 +281,7 @@ struct IssueListView: View {
                     // The compact list's highlight likewise, and back from an
                     // issue the list opens where that issue is.
                     .onChange(of: model.highlightedIssueNumber) { _ in
-                        guard style == .ruled, let id = model.highlightedIssue?.id else { return }
+                        guard model.selectedIssueNumber == nil, let id = model.highlightedIssue?.id else { return }
                         proxy.scrollTo(id)
                     }
                     .onAppear {
@@ -324,9 +340,10 @@ struct IssueRow: View {
         let related = model.relatedMentions(of: issue)
         let shown = Array(mentions.prefix(3))
         let selected = style == .sidebar && model.selectedIssueNumber == issue.number
-        // ↑, ↓ and Return act on the list while no field has focus.
+        // ↑, ↓ and Return act on the list while nothing else has focus;
+        // choosing an issue, they move this highlight.
         let listFocused = model.focusedField == nil
-        let highlighted = style == .ruled && listFocused && model.highlightedIssueNumber == issue.number
+        let highlighted = listFocused && model.selectedIssueNumber == nil && model.highlightedIssueNumber == issue.number
 
         HStack(alignment: .top, spacing: 9) {
             StateIcon(issue: issue)
@@ -425,10 +442,13 @@ struct IssueRow: View {
                 }
         case .sidebar:
             RoundedRectangle(cornerRadius: 8)
-                .fill(selected ? Style.selectedRow : (hovering ? Style.rowHover : Color.clear))
+                .fill(selected ? Style.selectedRow : (hovering || highlighted ? Style.rowHover : Color.clear))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(selected ? (listFocused ? Style.accentRing : Style.fieldRing) : Color.clear, lineWidth: 1)
+                        .strokeBorder(
+                            selected ? (listFocused ? Style.accentRing : Style.fieldRing) : (highlighted ? Style.accentRing : Color.clear),
+                            lineWidth: 1
+                        )
                 )
                 .shadow(color: .black.opacity(selected ? 0.06 : 0), radius: 1.5, y: 1)
         }

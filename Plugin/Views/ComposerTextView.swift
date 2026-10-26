@@ -63,9 +63,11 @@ struct ComposerTextView: NSViewRepresentable {
         if wantsFocus, !context.coordinator.wantedFocus {
             // Later: a new text view isn't in its window yet, and SwiftUI may
             // still be moving focus out of another field.
-            DispatchQueue.main.async { [weak textView] in
+            DispatchQueue.main.async { [weak textView, weak scrollView] in
                 guard let textView, let window = textView.window, window.firstResponder !== textView else { return }
                 window.makeFirstResponder(textView)
+                // Into view, if the issue's scroll view has it out of sight.
+                if let scrollView { scrollView.scrollToVisible(scrollView.bounds) }
             }
         }
         context.coordinator.wantedFocus = wantsFocus

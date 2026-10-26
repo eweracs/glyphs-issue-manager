@@ -131,6 +131,26 @@ public struct GitHubComment: Decodable, Hashable, Identifiable {
     }
 }
 
+/// A repository, as far as the panel needs it.
+public struct GitHubRepository: Decodable, Hashable {
+    public let id: Int
+    /// What the signed-in account may do; nil when not signed in.
+    public let permissions: Permissions?
+
+    public struct Permissions: Decodable, Hashable {
+        public let admin: Bool
+        public let maintain: Bool?
+        public let push: Bool
+    }
+
+    /// Whether the account may write to it, which on GitHub includes editing
+    /// and deleting other people's comments.
+    public var canWrite: Bool {
+        guard let permissions else { return false }
+        return permissions.push || permissions.admin || permissions.maintain == true
+    }
+}
+
 public extension JSONDecoder {
     static var gitHub: JSONDecoder {
         let decoder = JSONDecoder()

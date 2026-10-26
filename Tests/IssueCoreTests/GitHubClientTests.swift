@@ -155,6 +155,48 @@ final class GitHubClientTests: XCTestCase {
         }
     }
 
+    func testEditCommentPatchesBody() async throws {
+        var seen: (method: String?, path: String?, body: [String: String])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.jsonBody(of: request))
+            return (200, [:], Data("""
+            {"id": 99, "body": "Checked all heavy masters, also Black.", "user": {"login": "lina-s"},
+             "created_at": "2026-10-19T09:00:00Z", "updated_at": "2026-10-20T10:00:00Z",
+             "html_url": "https://github.com/acme-type/halden-sans/issues/7#issuecomment-99"}
+            """.utf8))
+        }
+        let comment = try await client(token: "secret").editComment(99, body: "Checked all heavy masters, also Black.", in: repo)
+        XCTAssertEqual(seen?.method, "PATCH")
+        XCTAssertEqual(seen?.path, "/repos/acme-type/halden-sans/issues/comments/99")
+        XCTAssertEqual(seen?.body, ["body": "Checked all heavy masters, also Black."])
+        XCTAssertEqual(comment.body, "Checked all heavy masters, also Black.")
+    }
+
+    func testDeleteCommentSendsNoBody() async throws {
+        var seen: (method: String?, path: String?, body: Data)?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.bodyData(of: request))
+            return (204, [:], Data())
+        }
+        try await client(token: "secret").deleteComment(99, in: repo)
+        XCTAssertEqual(seen?.method, "DELETE")
+        XCTAssertEqual(seen?.path, "/repos/acme-type/halden-sans/issues/comments/99")
+        XCTAssertEqual(seen?.body, Data())
+    }
+
+    func testRepositoryPermissions() async throws {
+        StubProtocol.handler = { _ in
+            (200, [:], Data(#"{"id": 81234, "permissions": {"admin": false, "maintain": false, "push": true, "triage": true, "pull": true}}"#.utf8))
+        }
+        let repository = try await client(token: "secret").repository(repo)
+        XCTAssertEqual(repository.id, 81234)
+        XCTAssertTrue(repository.canWrite)
+
+        StubProtocol.handler = { _ in (200, [:], Data(#"{"id": 81234}"#.utf8)) }
+        let anonymous = try await client(token: nil).repository(repo)
+        XCTAssertFalse(anonymous.canWrite)
+    }
+
     // MARK: - Helpers
 
     private func client(token: String?) -> GitHubClient {

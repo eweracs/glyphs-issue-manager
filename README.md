@@ -60,7 +60,10 @@ or later.
   (and **Reopen with comment**), as on GitHub. The glyph button adds the
   current glyph's name, e.g. `/a`, or all selected glyphs', e.g.
   `/Aring/Aacute/Abreve`. Unsent comments are kept per issue while Glyphs
-  runs.
+  runs. A comment's **…** menu edits it in place or deletes it (after asking:
+  Return deletes, Esc keeps it),
+  for its author and for anyone with write access to the repository, as on
+  GitHub; it also copies the comment's link.
 - **Images.** Paste an image (a screenshot, an image file copied in Finder)
   into a comment or a new issue's description, or drop one in. It uploads to
   GitHub as when pasted on the website: `![Uploading image.png…]()` stands in
@@ -77,17 +80,32 @@ of existing issues happens on GitHub (**Open on GitHub**).
 
 ## Keyboard
 
-The panel can be used without the mouse. Cycle Through Windows (⌘`, ⌘< on
-German keyboards) reaches it as it does the font windows, and ⌘W closes it.
-While it is the key window:
+The panel can be used without the mouse. **Window → GitHub Issues** opens it
+as the key window, with the issue list ready for the arrow keys. Cycle Through
+Windows (⌘`, ⌘< on German keyboards) reaches it as it does the font windows,
+and ⌘W closes it.
+
+**Tab** and **⇧Tab** go round what is on screen, showing a focus ring:
+
+- choosing an issue: the issue list, Open/Closed, *Current glyph*, the label
+  filter, the search field, New issue, Refresh, the repository menu;
+- with an issue open: the issue, the comment box, the button that adds the
+  selected glyphs, Comment (and a comment being edited, after the issue);
+- in a new issue: title, description, the glyph button, Create issue.
+
+Controls that are disabled or not shown are skipped: Comment while the comment
+box is empty, the glyph button while no glyphs are selected, *Current glyph*
+without a current glyph, Create issue without a title.
+
+Return or Space presses the focused button or opens its menu; ← → switch
+between Open and Closed. While the panel is the key window:
 
 | Key | |
 | --- | --- |
-| Tab, ⇧Tab | next or previous of search field, issue list and comment box (in a new issue: title and description) |
-| ↑ ↓ | the issue above or below in the list (in the compact palette they move a highlight); ↓ in the search field goes on to the list |
-| Return | open the highlighted issue (compact palette); with an issue open, go to its comment box |
-| Esc | out of the comment box; then back to the list (compact) or cancel a new issue |
-| ⌘↩ | post the comment, or create the issue |
+| ↑ ↓ | in the list: the issue above or below. Choosing an issue they move a highlight; with an issue open they open the next one. ↓ in the search field goes on to the list |
+| Return | open the highlighted issue; with an issue open, go to its comment box |
+| Esc | out of the comment box or search field; then out of the issue (or a comment edit, or a new issue) back to choosing one |
+| ⌘↩ | post the comment, save the edited comment, or create the issue |
 | ⇧⌘↩ | close the issue, or reopen it, posting the comment if there is one |
 | ⌥⌘← ⌥⌘→ | the issue numbered just below or above |
 | ⌘F | search |

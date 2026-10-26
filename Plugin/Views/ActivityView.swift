@@ -72,7 +72,7 @@ struct ActivitySection: View {
     private func rowView(_ row: ActivityRow) -> some View {
         switch row {
         case .item(.comment(let comment)):
-            ActivityCommentRow(comment: comment, model: model, compact: compact, avatarSize: avatarSize)
+            ActivityCommentRow(comment: comment, issue: issue, model: model, compact: compact, avatarSize: avatarSize)
         case .item(.event(let event)):
             ActivityEventRow(event: event, model: model, compact: compact, avatarSize: avatarSize)
         case .more(let runID, let count):
@@ -87,13 +87,18 @@ struct ActivitySection: View {
 
 // MARK: - Rows
 
+/// A comment; its “…” menu edits (in place) or deletes it, where the
+/// signed-in account may (IssuesModel.canModify).
 private struct ActivityCommentRow: View {
     let comment: ActivityComment
+    let issue: GitHubIssue
     @ObservedObject var model: IssuesModel
     let compact: Bool
     let avatarSize: CGFloat
 
     var body: some View {
+        let editing = comment.commentID != nil && model.editingComment?.commentID == comment.commentID
+        let deleting = comment.commentID.map(model.deletingComments.contains) ?? false
         HStack(alignment: .top, spacing: compact ? 9 : 10) {
             Avatar(user: comment.author, size: avatarSize)
                 .background(Circle().fill(Style.content).padding(-3))
@@ -104,18 +109,111 @@ private struct ActivityCommentRow: View {
                         .foregroundColor(Style.text)
                     Text("· \(RelativeTime.string(for: comment.createdAt))")
                         .foregroundColor(Style.secondaryText)
+                    Spacer(minLength: 4)
+                    if deleting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.6)
+                            .frame(width: 14, height: 14)
+                    } else if !editing, model.canModify(comment) || comment.htmlURL != nil {
+                        PopUpMenuButton(items: menuItems) {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Style.secondaryText)
+                                .frame(width: 22, height: 16)
+                        }
+                        .help("Edit, delete or link to this comment")
+                        .accessibilityLabel("Comment actions")
+                    }
                 }
                 .font(.system(size: 12))
-                MarkdownView(
-                    markdown: comment.body,
-                    html: comment.bodyHTML,
-                    glyphNames: glyphNames,
-                    fontSize: compact ? 12.5 : 13,
-                    openGlyph: { model.openGlyphs([$0]) }
-                )
+                if editing {
+                    editor
+                } else {
+                    MarkdownView(
+                        markdown: comment.body,
+                        html: comment.bodyHTML,
+                        glyphNames: glyphNames,
+                        fontSize: compact ? 12.5 : 13,
+                        openGlyph: { model.openGlyphs([$0]) }
+                    )
+                }
             }
         }
         .padding(.vertical, 2)
+        .opacity(deleting ? 0.5 : 1)
+    }
+
+    private func menuItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+        if model.canModify(comment) {
+            items.append(ActionMenuItem("Edit") { model.startEditing(comment, on: issue) })
+            items.append(ActionMenuItem("Delete…") { model.delete(comment, on: issue) })
+        }
+        if let url = comment.htmlURL {
+            if !items.isEmpty { items.append(.separator()) }
+            items.append(ActionMenuItem("Copy Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            })
+            items.append(ActionMenuItem("Open on GitHub") { NSWorkspace.shared.open(url) })
+        }
+        return items
+    }
+
+    /// The comment's text in a comment box, with Cancel (Esc twice) and
+    /// Update comment (⌘↩).
+    private var editor: some View {
+        let text = Binding(get: { model.editingComment?.text ?? "" }, set: { model.editingComment?.text = $0 })
+        let id = comment.commentID ?? 0
+        return VStack(alignment: .leading, spacing: 8) {
+            ComposerEditor(
+                text: text, placeholder: "Comment", minHeight: 60, maxHeight: 280,
+                isFocused: model.focusBinding(for: .editComment)
+            ) {
+                model.attach($0, to: .edit(id))
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    GlyphInsertButton(model: model, text: text, focusable: false)
+                    Spacer(minLength: 4)
+                    editButtons
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    GlyphInsertButton(model: model, text: text, focusable: false)
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        editButtons
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private var editButtons: some View {
+        HStack(spacing: 8) {
+            Button("Cancel", action: model.cancelEditing)
+                .buttonStyle(SecondaryButtonStyle())
+                .fixedSize()
+            Button(action: model.saveEdit) {
+                HStack(spacing: 6) {
+                    if model.isSavingComment {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.6)
+                            .frame(width: 12, height: 12)
+                            .colorInvert()
+                    }
+                    Text("Update comment")
+                }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .fixedSize()
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(!model.canSaveEdit)
+            .help("Save the comment on GitHub  ⌘↩")
+        }
     }
 
     private var glyphNames: Set<String> {

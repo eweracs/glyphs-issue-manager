@@ -120,6 +120,7 @@ struct NewIssueButton: View {
                 .foregroundColor(Style.icon)
                 .frame(width: 28, height: 24)
                 .contentShape(Rectangle())
+                .keyboardFocusRing(model.focusedField == .newIssue, cornerRadius: 5)
         }
         .buttonStyle(.plain)
         .disabled(model.phase != .ready)
@@ -147,6 +148,7 @@ struct RefreshButton: View {
             }
             .frame(width: 28, height: 24)
             .contentShape(Rectangle())
+            .keyboardFocusRing(model.focusedField == .refresh, cornerRadius: 5)
         }
         .buttonStyle(.plain)
         .disabled(model.isRefreshing || model.repo == nil)

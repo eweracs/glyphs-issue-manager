@@ -19,15 +19,28 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
+    /// Window → GitHub Issues: hides the panel when it is the key window,
+    /// and otherwise brings it up as the key window, ready for the keyboard.
     func toggle() {
-        isVisible ? hide() : show()
+        if let panel, panel.isVisible, panel.isKeyWindow {
+            hide()
+        } else {
+            show(makingKey: true)
+        }
     }
 
-    func show() {
+    /// `makingKey` false (restoring the panel at launch) leaves the keyboard
+    /// with the font window.
+    func show(makingKey: Bool) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         model.activate()
-        panel.orderFront(nil)
+        if makingKey {
+            panel.makeKeyAndOrderFront(nil)
+            model.focusList()
+        } else {
+            panel.orderFront(nil)
+        }
         panel.layoutTrafficLights()
         Defaults.panelWasVisible = true
     }
@@ -137,12 +150,14 @@ final class IssuesPanelController: NSObject, NSWindowDelegate {
 
 /// Keys the panel acts on itself, ahead of the focused view and Glyphs' menus.
 enum PanelKey {
-    /// Tab or ⇧Tab: the next or previous of search, list and comment box.
+    /// Tab or ⇧Tab: the next or previous stop (IssuesModel.tabOrder).
     case tab(backward: Bool)
     /// ↑ (-1) or ↓ (1); `inField` while a text field has focus.
     case arrow(step: Int, inField: Bool)
-    /// Return outside text fields.
-    case confirm
+    /// ← (-1) or → (1) outside text fields.
+    case sideways(Int)
+    /// Return, Space and Esc outside text fields.
+    case confirm, space, escape
     /// ⌘F, ⌘N, ⌘R, ⇧⌘↩.
     case find, newIssue, refresh, closeOrReopen
 }
@@ -221,21 +236,24 @@ final class IssuesPanel: NSPanel {
         event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
     }
 
-    /// Tab everywhere; arrows and Return only outside text fields, which
-    /// keep them (except ↓ in the search field, which the model decides on).
+    /// Tab everywhere; the other keys only outside text fields, which keep
+    /// them (except ↓ in the search field, which the model decides on).
     private static func key(for event: NSEvent, inField: Bool) -> PanelKey? {
         let modifiers = modifiers(of: event)
-        switch event.keyCode {
-        case 48 where modifiers.isEmpty || modifiers == .shift:  // Tab
+        if event.keyCode == 48, modifiers.isEmpty || modifiers == .shift {  // Tab
             return .tab(backward: modifiers == .shift)
-        case 126 where modifiers.isEmpty:  // ↑
-            return .arrow(step: -1, inField: inField)
-        case 125 where modifiers.isEmpty:  // ↓
-            return .arrow(step: 1, inField: inField)
-        case 36 where modifiers.isEmpty && !inField, 76 where modifiers.isEmpty && !inField:  // Return, Enter
-            return .confirm
-        default:
-            return nil
+        }
+        guard modifiers.isEmpty else { return nil }
+        switch event.keyCode {
+        case 126: return .arrow(step: -1, inField: inField)  // ↑
+        case 125: return .arrow(step: 1, inField: inField)  // ↓
+        case _ where inField: return nil
+        case 123: return .sideways(-1)  // ←
+        case 124: return .sideways(1)  // →
+        case 36, 76: return .confirm  // Return, Enter
+        case 49: return .space
+        case 53: return .escape
+        default: return nil
         }
     }
 

@@ -62,10 +62,27 @@ final class IssuesModel: ObservableObject {
     /// Images uploading now, by the placeholder that stands in for each in its draft.
     @Published private(set) var imageUploads: [String: DraftTarget] = [:]
 
-    /// A text being written: a comment on an issue, or the new issue's body.
+    /// A text being written: a comment on an issue, the new issue's body,
+    /// or a comment being edited (by its GitHub id).
     enum DraftTarget: Hashable {
         case comment(Int)
         case newIssue
+        case edit(Int)
+    }
+
+    /// The comment being edited in place, with its text so far.
+    @Published var editingComment: CommentEdit?
+    @Published private(set) var isSavingComment = false
+    @Published private(set) var deletingComments: Set<Int> = []
+    /// The signed-in account's login, and whether it may write to the
+    /// repository; together they say whose comments it may edit and delete.
+    @Published private(set) var viewerLogin: String?
+    @Published private(set) var canWriteRepository = false
+
+    struct CommentEdit: Equatable {
+        let issue: Int
+        let commentID: Int
+        var text: String
     }
 
     // MARK: New issue
@@ -93,13 +110,31 @@ final class IssuesModel: ObservableObject {
     @Published var searchText = ""
     /// The issue ↑ and ↓ have reached in the compact list; Return opens it.
     @Published private(set) var highlightedIssueNumber: Int?
-    /// The text field with keyboard focus, as the fields report it; nil when
-    /// none has it, and ↑, ↓ and Return go to the list. Setting it moves
-    /// focus there (`focus(_:)` also takes it out of a field).
+    /// Where keyboard focus is (Tab moves it); nil is the list, where ↑, ↓
+    /// and Return act. Text fields report their own focus here, and take it
+    /// when it is set to them; buttons draw a focus ring.
     @Published var focusedField: Field?
+    /// The menu Return or Space asked a focused menu button to open.
+    @Published var menuRequest: Field?
 
     enum Field: Hashable {
-        case search, comment, newIssueTitle, newIssueBody
+        // Above the list, in Tab order.
+        case stateFilter, glyphFilter, labels, search, newIssue, refresh, repository
+        // An open issue.
+        case editComment, comment, insertGlyphs, postComment
+        // The new-issue form.
+        case newIssueTitle, newIssueBody, createIssue
+
+        /// Fields that take typing; Return and Space press the others.
+        var takesText: Bool {
+            switch self {
+            case .search, .editComment, .comment, .newIssueTitle, .newIssueBody: return true
+            default: return false
+            }
+        }
+
+        static let issueFields: Set<Field> = [.editComment, .comment, .insertGlyphs, .postComment]
+        static let formFields: Set<Field> = [.newIssueTitle, .newIssueBody, .createIssue]
     }
 
     @Published var selectedIssueNumber: Int? {
@@ -242,6 +277,8 @@ final class IssuesModel: ObservableObject {
         actionError = nil
         commentDrafts = [:]
         imageUploads = [:]
+        editingComment = nil
+        canWriteRepository = false
         isComposingIssue = false
         newIssueLabels = []
         newIssueError = nil
@@ -272,6 +309,7 @@ final class IssuesModel: ObservableObject {
                 self.refreshError = nil
                 self.phase = .ready
                 self.establishBaselineIfNeeded(repo)
+                self.loadAccount(for: repo)
                 if let number = self.selectedIssueNumber { self.loadActivity(for: number) }
             } catch {
                 guard !Task.isCancelled, repo == self.repo else { return }
@@ -501,9 +539,17 @@ final class IssuesModel: ObservableObject {
 
     func select(_ number: Int?) {
         isComposingIssue = false
-        // Back in the compact list, the highlight is on the issue just left.
+        // Back in the list, the highlight is on the issue just left.
         if let highlight = number ?? selectedIssueNumber { highlightedIssueNumber = highlight }
-        if number == nil, focusedField == .comment { focusedField = nil }
+        // Focus on something that goes away returns to the list. Going from
+        // issue to issue, it stays in the comment box (or on its buttons).
+        if let field = focusedField {
+            let stays = number == nil
+                ? !Field.issueFields.contains(field) && !Field.formFields.contains(field)
+                : (Field.issueFields.contains(field) && field != .editComment) || field == .search
+            if !stays { focusedField = nil }
+        }
+        if number != selectedIssueNumber { editingComment = nil }
         selectedIssueNumber = number
     }
 
@@ -563,6 +609,10 @@ final class IssuesModel: ObservableObject {
                 if let comment {
                     try await client.addComment(comment, toIssue: number, in: repo)
                     self?.commentDrafts[number] = nil
+                    // The Comment button is disabled again; back to the box.
+                    if self?.focusedField == .postComment, self?.selectedIssueNumber == number {
+                        self?.focusedField = .comment
+                    }
                 }
                 let updated: GitHubIssue
                 switch change {
@@ -609,7 +659,7 @@ final class IssuesModel: ObservableObject {
     /// Leaves the form; what was typed is kept for next time.
     func cancelNewIssue() {
         isComposingIssue = false
-        if focusedField == .newIssueTitle || focusedField == .newIssueBody { focusedField = nil }
+        if let field = focusedField, Field.formFields.contains(field) || field == .insertGlyphs { focus(nil) }
     }
 
     var canCreateIssue: Bool {
@@ -662,21 +712,33 @@ final class IssuesModel: ObservableObject {
         guard phase == .ready else { return false }
         switch key {
         case .tab(let backward):
-            moveFocus(forward: !backward, wide: wide)
+            moveFocus(forward: !backward)
             return true
         case .arrow(let step, let inField):
-            guard inField else { return moveInList(by: step, wide: wide) }
-            // ↓ from the search field goes on to the results.
-            guard focusedField == .search, step > 0 else { return false }
-            focus(nil)
-            if !wide, highlightedIssue == nil {
-                highlightedIssueNumber = filteredIssues.first?.number
-            } else if wide, selectedIssueNumber == nil, let first = filteredIssues.first {
-                select(first.number)
+            if inField {
+                // ↓ from the search field goes on to the results.
+                guard focusedField == .search, step > 0 else { return false }
+                focus(nil)
+                if selectedIssueNumber == nil, highlightedIssue == nil {
+                    highlightedIssueNumber = filteredIssues.first?.number
+                }
+                return true
             }
+            // On a button there is nothing to move through.
+            guard focusedField == nil else { return true }
+            return moveInList(by: step)
+        case .sideways(let step):
+            guard focusedField == .stateFilter else { return false }
+            stateFilter = step < 0 ? .open : .closed
             return true
         case .confirm:
-            return confirm(wide: wide)
+            if let field = focusedField { return activate(field) }
+            return openOrReply()
+        case .space:
+            guard let field = focusedField else { return false }
+            return activate(field)
+        case .escape:
+            return stepBack()
         case .find:
             if !wide, selectedIssueNumber != nil || isComposingIssue { select(nil) }
             focus(.search)
@@ -697,10 +759,20 @@ final class IssuesModel: ObservableObject {
         }
     }
 
-    /// Moves keyboard focus to a field, or (nil) out of the fields to the list.
+    /// Moves keyboard focus to a field or button, or (nil) to the list.
     func focus(_ field: Field?) {
         focusedField = field
-        if field == nil { window?.makeFirstResponder(nil) }
+        // Text fields take the keyboard themselves; for the list and the
+        // buttons, no text field may keep it.
+        if field?.takesText != true { window?.makeFirstResponder(nil) }
+    }
+
+    /// When the panel is opened from the menu: the list has the keyboard.
+    func focusList() {
+        focus(nil)
+        if selectedIssueNumber == nil, highlightedIssue == nil {
+            highlightedIssueNumber = filteredIssues.first?.number
+        }
     }
 
     /// Whether `field` has focus, for the field's own focus state to follow.
@@ -717,48 +789,88 @@ final class IssuesModel: ObservableObject {
         )
     }
 
+    /// Hands a menu request to the menu button it is for, once.
+    func takeMenuRequest(_ field: Field) -> Bool {
+        guard menuRequest == field else { return false }
+        menuRequest = nil
+        return true
+    }
+
     /// The highlighted issue, if it is in the list as shown.
     var highlightedIssue: GitHubIssue? {
         highlightedIssueNumber.flatMap { number in filteredIssues.first { $0.number == number } }
     }
 
-    /// Tab and ⇧Tab go round the fields on screen, with the list (nil) as
-    /// one of the stops.
-    private func moveFocus(forward: Bool, wide: Bool) {
-        var stops: [Field?] = []
+    /// The stops Tab and ⇧Tab go round, in order. Choosing an issue: the
+    /// list, then the controls above it. With an issue open: the list, a
+    /// comment being edited, the comment box and its buttons. A new issue:
+    /// its fields and Create. Stops that are disabled or not on screen are
+    /// skipped (`isTabStop`).
+    private var tabOrder: [Field?] {
         if isComposingIssue {
-            if wide { stops += [.search, nil] }
-            stops += [.newIssueTitle, .newIssueBody]
-        } else if selectedIssueNumber != nil {
-            if wide { stops.append(.search) }
-            stops.append(nil)
-            if canChangeIssues { stops.append(.comment) }
-        } else {
-            stops += [.search, nil]
+            return [.newIssueTitle, .newIssueBody, .insertGlyphs, .createIssue]
         }
-        let next: Field?
-        if let index = stops.firstIndex(of: focusedField) {
-            next = stops[(index + (forward ? 1 : stops.count - 1)) % stops.count]
-        } else {
-            next = stops[forward ? 0 : stops.count - 1]
+        if selectedIssueNumber != nil {
+            return [nil, .editComment, .comment, .insertGlyphs, .postComment]
         }
-        focus(next)
-        if next == nil, !wide, selectedIssueNumber == nil, !isComposingIssue, highlightedIssue == nil {
-            highlightedIssueNumber = filteredIssues.first?.number
+        return [nil, .stateFilter, .glyphFilter, .labels, .search, .newIssue, .refresh, .repository]
+    }
+
+    /// Whether Tab stops at `field` now: it is shown and can be used.
+    private func isTabStop(_ field: Field?) -> Bool {
+        guard let field else { return true }
+        switch field {
+        case .glyphFilter:
+            return currentGlyph != nil || currentGlyphOnly
+        case .refresh:
+            return !isRefreshing
+        case .editComment:
+            return editingComment != nil && editingComment?.issue == selectedIssueNumber
+        case .comment:
+            return canChangeIssues
+        case .insertGlyphs:
+            // Shown only with glyphs selected; useless next to a disabled box.
+            return !selectedGlyphs.isEmpty && (isComposingIssue || canChangeIssues)
+        case .postComment:
+            // Disabled until there is something to post.
+            guard let issue = selectedIssue else { return false }
+            return canChangeIssues && hasDraft(for: issue) && !updatingIssues.contains(issue.number)
+                && !isUploadingImages(into: .comment(issue.number))
+        case .createIssue:
+            return canChangeIssues && canCreateIssue
+        default:
+            return true
         }
     }
 
-    /// ↑ and ↓ with no field focused. In the split view they move the
-    /// selection through the list as shown; in the compact list, the
-    /// highlight. Both stop at the ends.
-    private func moveInList(by step: Int, wide: Bool) -> Bool {
-        let list = filteredIssues
-        if wide {
-            if let next = neighbor(of: selectedIssueNumber, by: step, in: list) { select(next) }
-            return true
+    private func moveFocus(forward: Bool) {
+        let order = tabOrder
+        // From where focus is; from outside the order, Tab starts at the
+        // beginning and ⇧Tab at the end.
+        var index = order.firstIndex(of: focusedField) ?? (forward ? order.count - 1 : 0)
+        for _ in order.indices {
+            index = (index + (forward ? 1 : order.count - 1)) % order.count
+            guard isTabStop(order[index]) else { continue }
+            let next = order[index]
+            focus(next)
+            if next == nil, selectedIssueNumber == nil, !isComposingIssue, highlightedIssue == nil {
+                highlightedIssueNumber = filteredIssues.first?.number
+            }
+            return
         }
-        guard selectedIssueNumber == nil, !isComposingIssue else { return false }
-        if let next = neighbor(of: highlightedIssueNumber, by: step, in: list) { highlightedIssueNumber = next }
+    }
+
+    /// ↑ and ↓ on the list: with an issue open they open the one above or
+    /// below; otherwise they move the highlight, which Return opens. Both
+    /// stop at the ends.
+    private func moveInList(by step: Int) -> Bool {
+        guard !isComposingIssue else { return false }
+        let list = filteredIssues
+        if selectedIssueNumber != nil {
+            if let next = neighbor(of: selectedIssueNumber, by: step, in: list) { select(next) }
+        } else if let next = neighbor(of: highlightedIssueNumber, by: step, in: list) {
+            highlightedIssueNumber = next
+        }
         return true
     }
 
@@ -770,17 +882,179 @@ final class IssuesModel: ObservableObject {
         return (step > 0 ? list.first : list.last)?.number
     }
 
-    /// Return with no field focused: opens the highlighted issue in the
-    /// compact list; with an issue open, goes to its comment box.
-    private func confirm(wide: Bool) -> Bool {
-        if !wide, selectedIssueNumber == nil, !isComposingIssue {
+    /// Return on the list: opens the highlighted issue, or, with an issue
+    /// open, goes to its comment box.
+    private func openOrReply() -> Bool {
+        guard !isComposingIssue else { return false }
+        if selectedIssueNumber == nil {
             guard let issue = highlightedIssue else { return false }
             select(issue.number)
             return true
         }
-        guard selectedIssueNumber != nil, !isComposingIssue, canChangeIssues else { return false }
+        guard canChangeIssues else { return false }
         focus(.comment)
         return true
+    }
+
+    /// Return or Space on a focused button presses it.
+    private func activate(_ field: Field) -> Bool {
+        switch field {
+        case .stateFilter:
+            stateFilter = stateFilter == .open ? .closed : .open
+        case .glyphFilter:
+            if currentGlyph != nil || currentGlyphOnly { currentGlyphOnly.toggle() }
+        case .labels, .repository:
+            menuRequest = field
+        case .newIssue:
+            startNewIssue()
+        case .refresh:
+            if !isRefreshing { reload() }
+        case .insertGlyphs:
+            if isComposingIssue {
+                newIssueBody = appendingSelectedGlyphs(to: newIssueBody)
+            } else if let number = selectedIssueNumber {
+                commentDrafts[number] = appendingSelectedGlyphs(to: commentDrafts[number] ?? "")
+            }
+        case .postComment:
+            if let issue = selectedIssue { postComment(on: issue) }
+        case .createIssue:
+            createIssue()
+        case .search, .editComment, .comment, .newIssueTitle, .newIssueBody:
+            return false
+        }
+        return true
+    }
+
+    /// Esc outside text fields steps back: out of an edit, a new issue or
+    /// an open issue to choosing one; from a button to the list.
+    private func stepBack() -> Bool {
+        if editingComment != nil {
+            cancelEditing()
+            return true
+        }
+        if isComposingIssue {
+            cancelNewIssue()
+            return true
+        }
+        if selectedIssueNumber != nil {
+            select(nil)
+            focus(nil)
+            return true
+        }
+        guard focusedField != nil else { return false }
+        focus(nil)
+        return true
+    }
+
+    // MARK: - Editing and deleting comments
+
+    /// Whether the signed-in account may edit and delete the comment: its
+    /// author may, and so may anyone with write access to the repository.
+    func canModify(_ comment: ActivityComment) -> Bool {
+        guard canChangeIssues, comment.commentID != nil else { return false }
+        if canWriteRepository { return true }
+        guard let viewerLogin, let author = comment.author?.login else { return false }
+        return author.caseInsensitiveCompare(viewerLogin) == .orderedSame
+    }
+
+    func startEditing(_ comment: ActivityComment, on issue: GitHubIssue) {
+        guard let id = comment.commentID else { return }
+        editingComment = CommentEdit(issue: issue.number, commentID: id, text: comment.body ?? "")
+        focusedField = .editComment
+    }
+
+    func cancelEditing() {
+        editingComment = nil
+        if focusedField == .editComment { focus(nil) }
+    }
+
+    var canSaveEdit: Bool {
+        guard let edit = editingComment else { return false }
+        return !isSavingComment && !isUploadingImages(into: .edit(edit.commentID))
+            && !edit.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func saveEdit() {
+        guard let repo, let edit = editingComment, canSaveEdit else { return }
+        isSavingComment = true
+        actionError = nil
+        let client = self.client
+        Task { [weak self] in
+            do {
+                try await client.editComment(edit.commentID, body: edit.text, in: repo)
+                guard let self, repo == self.repo else { return }
+                if self.editingComment?.commentID == edit.commentID { self.cancelEditing() }
+                self.loadActivity(for: edit.issue, force: true)
+            } catch {
+                guard let self, repo == self.repo else { return }
+                self.actionError = ActionError(number: edit.issue, message: self.describeChangeError(error, repo: repo))
+            }
+            self?.isSavingComment = false
+        }
+    }
+
+    /// Asks, then deletes the comment on GitHub.
+    func delete(_ comment: ActivityComment, on issue: GitHubIssue) {
+        guard repo != nil, let id = comment.commentID else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete this comment?"
+        alert.informativeText = "It is removed from #\(issue.number) on GitHub. This can’t be undone."
+        alert.alertStyle = .warning
+        // The default button, so Return deletes and Esc cancels. (Marked as
+        // destructive, NSAlert would take Return away from it.)
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        let number = issue.number
+        present(alert) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn, let repo = self.repo else { return }
+            if self.editingComment?.commentID == id { self.cancelEditing() }
+            self.deletingComments.insert(id)
+            self.actionError = nil
+            let client = self.client
+            Task { [weak self] in
+                do {
+                    try await client.deleteComment(id, in: repo)
+                    guard let self, repo == self.repo else { return }
+                    self.activity[number]?.removeAll { $0.id == comment.id }
+                    self.refreshIssue(number, in: repo)
+                } catch {
+                    guard let self, repo == self.repo else { return }
+                    self.actionError = ActionError(number: number, message: self.describeChangeError(error, repo: repo))
+                }
+                self?.deletingComments.remove(id)
+            }
+        }
+    }
+
+    /// Fetches one issue again (its comment count changed) and its activity.
+    private func refreshIssue(_ number: Int, in repo: GitHubRepo) {
+        let client = self.client
+        Task { [weak self] in
+            let updated = try? await client.issue(number, in: repo)
+            guard let self, repo == self.repo else { return }
+            if let updated, let index = self.issues.firstIndex(where: { $0.number == number }) {
+                self.issues[index] = updated
+            }
+            self.loadActivity(for: number, force: true)
+        }
+    }
+
+    /// Who is signed in, and whether they may write to the repository.
+    private func loadAccount(for repo: GitHubRepo) {
+        guard client.token != nil else {
+            viewerLogin = nil
+            canWriteRepository = false
+            return
+        }
+        let client = self.client
+        Task { [weak self] in
+            async let viewer = try? client.viewer()
+            async let repository = try? client.repository(repo)
+            let (login, canWrite) = await (viewer?.login, repository?.canWrite ?? false)
+            guard let self, repo == self.repo else { return }
+            self.viewerLogin = login
+            self.canWriteRepository = canWrite
+        }
     }
 
     // MARK: - Images
@@ -839,6 +1113,7 @@ final class IssuesModel: ObservableObject {
         switch target {
         case .comment(let number): return commentDrafts[number] ?? ""
         case .newIssue: return newIssueBody
+        case .edit(let id): return editingComment?.commentID == id ? editingComment?.text ?? "" : ""
         }
     }
 
@@ -851,6 +1126,7 @@ final class IssuesModel: ObservableObject {
         switch target {
         case .comment(let number): commentDrafts[number] = replaced
         case .newIssue: newIssueBody = replaced
+        case .edit: editingComment?.text = replaced
         }
         return true
     }
@@ -859,6 +1135,7 @@ final class IssuesModel: ObservableObject {
         switch target {
         case .comment(let number): actionError = ActionError(number: number, message: message)
         case .newIssue: newIssueError = message
+        case .edit: if let number = editingComment?.issue { actionError = ActionError(number: number, message: message) }
         }
     }
 
@@ -866,6 +1143,7 @@ final class IssuesModel: ObservableObject {
         switch target {
         case .comment(let number): if actionError?.number == number { actionError = nil }
         case .newIssue: newIssueError = nil
+        case .edit: if actionError?.number == editingComment?.issue { actionError = nil }
         }
     }
 

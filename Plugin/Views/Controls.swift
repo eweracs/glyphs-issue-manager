@@ -20,7 +20,10 @@ struct SearchField: View {
                 .font(.system(size: 13))
                 .foregroundColor(Style.text)
                 .focused($focused)
-                .onExitCommand { text = "" }
+                // Esc clears the search; in an empty field it leaves for the list.
+                .onExitCommand {
+                    if text.isEmpty { focused = false } else { text = "" }
+                }
             if !text.isEmpty {
                 Button {
                     text = ""
@@ -54,11 +57,27 @@ struct SearchField: View {
     }
 }
 
+extension View {
+    /// The ring around the button Tab has reached (IssuesModel.focusedField).
+    /// Return or Space presses it.
+    func keyboardFocusRing(_ shown: Bool, cornerRadius: CGFloat = 7) -> some View {
+        overlay {
+            if shown {
+                RoundedRectangle(cornerRadius: cornerRadius + 3)
+                    .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
+                    .padding(-3)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
 /// Open / Closed segmented control with counts.
 struct StateSegments: View {
     @Binding var selection: IssuesModel.StateFilter
     let open: Int
     let closed: Int
+    var isFocused = false
 
     var body: some View {
         HStack(spacing: 2) {
@@ -67,6 +86,7 @@ struct StateSegments: View {
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 7).fill(Style.segmentTrack))
+        .keyboardFocusRing(isFocused)
         .fixedSize()
     }
 
@@ -159,6 +179,7 @@ struct GlyphFilterToggle: View {
     /// Longest the glyph name may get before it is shortened in the middle;
     /// nil leaves only the icon (the tooltip still names the glyph).
     var nameWidth: CGFloat? = 96
+    var isFocused = false
 
     var body: some View {
         Button {
@@ -186,6 +207,7 @@ struct GlyphFilterToggle: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .keyboardFocusRing(isFocused)
         .fixedSize()
         .disabled(glyph == nil && !isOn)
         .opacity(glyph == nil && !isOn ? 0.5 : 1)
@@ -282,23 +304,35 @@ struct AccentLinkButtonStyle: ButtonStyle {
 /// restyles its label, so the mockup's repository and label buttons use this.
 struct PopUpMenuButton<Label: View>: View {
     let items: () -> [NSMenuItem]
+    /// Return or Space on the focused button asks for the menu
+    /// (IssuesModel.menuRequest); `takeRequest` answers whether it is still
+    /// open, so only one button opens it.
+    var isRequested = false
+    var takeRequest: () -> Bool = { false }
     @ViewBuilder let label: () -> Label
     @State private var anchor = MenuAnchor()
 
     var body: some View {
-        Button {
-            let menu = NSMenu()
-            menu.autoenablesItems = false
-            items().forEach(menu.addItem)
-            if let view = anchor.view {
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: view)
-            }
-        } label: {
+        Button(action: popUp) {
             label()
                 .background(MenuAnchorView(anchor: anchor))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onChange(of: isRequested) { requested in
+            // Later: the menu runs a tracking loop of its own, which mustn't
+            // start in the middle of a SwiftUI update.
+            if requested, takeRequest() { DispatchQueue.main.async { popUp() } }
+        }
+    }
+
+    private func popUp() {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        items().forEach(menu.addItem)
+        if let view = anchor.view {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: view)
+        }
     }
 }
 

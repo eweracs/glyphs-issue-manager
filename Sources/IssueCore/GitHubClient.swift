@@ -127,6 +127,25 @@ public final class GitHubClient {
         return try decode(GitHubComment.self, from: data)
     }
 
+    /// Replaces a comment's text. GitHub lets the comment's author and
+    /// people with write access to the repository do this.
+    @discardableResult
+    public func editComment(_ id: Int, body: String, in repo: GitHubRepo) async throws -> GitHubComment {
+        let data = try await send("PATCH", to: endpoint(repo, "issues/comments/\(id)"), json: ["body": body])
+        return try decode(GitHubComment.self, from: data)
+    }
+
+    /// Deletes a comment, for good. Allowed as for editing.
+    public func deleteComment(_ id: Int, in repo: GitHubRepo) async throws {
+        _ = try await send("DELETE", to: endpoint(repo, "issues/comments/\(id)"), json: nil)
+    }
+
+    /// The signed-in account.
+    public func viewer() async throws -> GitHubUser {
+        let (data, _) = try await get(apiBase.appendingPathComponent("user"))
+        return try decode(GitHubUser.self, from: data)
+    }
+
     /// Opens a new issue. Needs a token that may write issues; labels the
     /// token may not set are left off by GitHub.
     public func createIssue(title: String, body: String, labels: [String], in repo: GitHubRepo) async throws -> GitHubIssue {
@@ -161,12 +180,16 @@ public final class GitHubClient {
     /// The repository's numeric id, which uploads are made against.
     public func repositoryID(of repo: GitHubRepo) async throws -> Int {
         if let known = knownRepositoryID(of: repo) { return known }
+        return try await repository(repo).id
+    }
+
+    /// The repository's id and what the signed-in account may do in it.
+    public func repository(_ repo: GitHubRepo) async throws -> GitHubRepository {
         let url = apiBase.appendingPathComponent("repos/\(repo.owner)/\(repo.name)")
         let (data, _) = try await get(url)
-        struct Repository: Decodable { let id: Int }
-        let id = try decode(Repository.self, from: data).id
-        remember(id, of: repo)
-        return id
+        let repository = try decode(GitHubRepository.self, from: data)
+        remember(repository.id, of: repo)
+        return repository
     }
 
     /// Closes an issue. Needs a token that may write issues.
@@ -203,13 +226,15 @@ public final class GitHubClient {
         return try decode(GitHubIssue.self, from: data)
     }
 
-    /// Sends a change with a JSON body. Cached responses are out of date
-    /// afterwards, so the cache is cleared.
-    private func send(_ method: String, to url: URL, json fields: [String: Any]) async throws -> Data {
+    /// Sends a change, with a JSON body unless `fields` is nil. Cached
+    /// responses are out of date afterwards, so the cache is cleared.
+    private func send(_ method: String, to url: URL, json fields: [String: Any]?) async throws -> Data {
         var request = makeRequest(url)
         request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+        if let fields {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+        }
         let (data, _) = try await perform(request)
         clearCache()
         return data

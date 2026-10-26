@@ -52,6 +52,9 @@ struct ComposerEditor: View {
 struct GlyphInsertButton: View {
     @ObservedObject var model: IssuesModel
     @Binding var text: String
+    /// Whether Tab reaches it: the one under the comment box or the new
+    /// issue's description, not the one in a comment being edited.
+    var focusable = true
 
     var body: some View {
         let glyphs = model.selectedGlyphs
@@ -79,6 +82,7 @@ struct GlyphInsertButton: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(Style.chip))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Style.chipRing, lineWidth: 0.5))
                 .contentShape(Rectangle())
+                .keyboardFocusRing(model.focusedField == .insertGlyphs && focusable, cornerRadius: 6)
             }
             .buttonStyle(.plain)
             .fixedSize()
@@ -203,8 +207,10 @@ private struct CommentButton: View {
             }
         }
         .buttonStyle(PrimaryButtonStyle())
+        .keyboardFocusRing(model.focusedField == .postComment)
         .fixedSize()
-        .keyboardShortcut(.return, modifiers: .command)
+        // While a comment is edited, ⌘↩ saves that instead.
+        .keyboardShortcut(model.editingComment == nil ? KeyboardShortcut(.return, modifiers: .command) : nil)
         .disabled(!model.canChangeIssues || !model.hasDraft(for: issue) || busy || uploading)
         .help(help(uploading: uploading))
     }
@@ -379,6 +385,7 @@ struct NewIssueView: View {
             }
         }
         .buttonStyle(PrimaryButtonStyle())
+        .keyboardFocusRing(model.focusedField == .createIssue)
         .keyboardShortcut(.return, modifiers: .command)
         .disabled(!model.canChangeIssues || !model.canCreateIssue)
         .help(createHelp)

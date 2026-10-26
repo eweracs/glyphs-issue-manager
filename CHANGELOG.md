@@ -30,9 +30,11 @@ on, close, reopen and create them without leaving Glyphs.
 - **Comment, close, reopen, create.** A comment box (⌘↩ to post),
   *Close with comment*, a button that adds the selected glyphs' names,
   images pasted or dropped in and uploaded to GitHub, and a form for
-  new issues with labels.
-- **Keyboard.** Tab between search, list and comment box, ↑ ↓ and
-  Return in the list, ⌘F, ⌘N, ⌘R and ⇧⌘↩; Cycle Through Windows
-  reaches the panel.
+  new issues with labels. Your comments – or anyone's, with write
+  access – can be edited in place or deleted.
+- **Keyboard.** Tab goes round the list and every control, ↑ ↓ and
+  Return open issues, Esc steps back out, and ⌘F, ⌘N, ⌘R and ⇧⌘↩
+  search, create, refresh and close; Cycle Through Windows reaches the
+  panel.
 - **Sign-in** with a token kept in the Keychain, or an existing `gh`
   login.
