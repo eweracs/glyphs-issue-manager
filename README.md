@@ -4,6 +4,8 @@ A plugin for Glyphs that shows the GitHub issues of the
 font you're working on in a floating panel. Open it with **Window → GitHub
 Issues**.
 
+![image](Images/Screenshot.png)
+
 ## Install
 
 1. Open up the plugin manager in Glyphs. Search for GitHub Issues and install the plugin.
