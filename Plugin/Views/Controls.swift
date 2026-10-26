@@ -284,6 +284,38 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// A square icon button with a hairline ring (28 × 28), beside the split
+/// layout's Close issue button.
+struct SquareIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyledBody(configuration: configuration)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Style.text)
+                .squareButtonChrome()
+                .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
+        }
+    }
+}
+
+extension View {
+    /// The look of SquareIconButtonStyle, also for menu buttons.
+    func squareButtonChrome() -> some View {
+        frame(width: 28, height: 28)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Style.field))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Style.fieldRing, lineWidth: 1))
+            .shadow(color: .black.opacity(0.04), radius: 0.5, y: 1)
+            .contentShape(Rectangle())
+    }
+}
+
 /// Accent text button.
 struct AccentLinkButtonStyle: ButtonStyle {
     var size: CGFloat = 11.5
@@ -351,6 +383,19 @@ private struct MenuAnchorView: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         anchor.view = view
+    }
+}
+
+extension NSMenuItem {
+    /// An item that opens a submenu of `items`.
+    static func submenu(_ title: String, _ items: [NSMenuItem], enabled: Bool = true) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        items.forEach(menu.addItem)
+        item.submenu = menu
+        item.isEnabled = enabled
+        return item
     }
 }
 

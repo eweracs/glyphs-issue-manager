@@ -1,6 +1,6 @@
 import Foundation
 
-public struct GitHubUser: Decodable, Hashable {
+public struct GitHubUser: Decodable, Hashable, Identifiable {
     public let login: String
     public let avatarURL: URL?
     public let htmlURL: URL?
@@ -15,6 +15,33 @@ public struct GitHubUser: Decodable, Hashable {
         self.login = login
         self.avatarURL = avatarURL
         self.htmlURL = htmlURL
+    }
+
+    public var id: String { login }
+}
+
+public struct GitHubMilestone: Decodable, Hashable, Identifiable {
+    public let id: Int
+    /// What the API sets an issue's milestone by.
+    public let number: Int
+    public let title: String
+    /// `open` or `closed`.
+    public let state: String
+    public let dueOn: Date?
+
+    public var isOpen: Bool { state == "open" }
+
+    enum CodingKeys: String, CodingKey {
+        case id, number, title, state
+        case dueOn = "due_on"
+    }
+
+    public init(id: Int, number: Int, title: String, state: String = "open", dueOn: Date? = nil) {
+        self.id = id
+        self.number = number
+        self.title = title
+        self.state = state
+        self.dueOn = dueOn
     }
 }
 
@@ -35,6 +62,8 @@ public struct GitHubLabel: Decodable, Hashable, Identifiable {
 
 public struct GitHubIssue: Decodable, Hashable, Identifiable {
     public let id: Int
+    /// The GraphQL id, which deleting an issue needs.
+    public let nodeID: String?
     public let number: Int
     public let title: String
     public let body: String?
@@ -46,6 +75,8 @@ public struct GitHubIssue: Decodable, Hashable, Identifiable {
     public let stateReason: String?
     public let user: GitHubUser?
     public let labels: [GitHubLabel]
+    public let assignees: [GitHubUser]
+    public let milestone: GitHubMilestone?
     public let comments: Int
     public let createdAt: Date
     public let updatedAt: Date
@@ -58,7 +89,8 @@ public struct GitHubIssue: Decodable, Hashable, Identifiable {
     public var isNotPlanned: Bool { stateReason == "not_planned" }
 
     enum CodingKeys: String, CodingKey {
-        case id, number, title, body, state, user, labels, comments
+        case id, number, title, body, state, user, labels, assignees, milestone, comments
+        case nodeID = "node_id"
         case bodyHTML = "body_html"
         case stateReason = "state_reason"
         case createdAt = "created_at"
@@ -73,6 +105,7 @@ public struct GitHubIssue: Decodable, Hashable, Identifiable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id)
+        nodeID = try c.decodeIfPresent(String.self, forKey: .nodeID)
         number = try c.decode(Int.self, forKey: .number)
         title = try c.decode(String.self, forKey: .title)
         body = try c.decodeIfPresent(String.self, forKey: .body)
@@ -81,6 +114,8 @@ public struct GitHubIssue: Decodable, Hashable, Identifiable {
         stateReason = try c.decodeIfPresent(String.self, forKey: .stateReason)
         user = try c.decodeIfPresent(GitHubUser.self, forKey: .user)
         labels = try c.decodeIfPresent([GitHubLabel].self, forKey: .labels) ?? []
+        assignees = try c.decodeIfPresent([GitHubUser].self, forKey: .assignees) ?? []
+        milestone = try c.decodeIfPresent(GitHubMilestone.self, forKey: .milestone)
         comments = try c.decodeIfPresent(Int.self, forKey: .comments) ?? 0
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
@@ -90,12 +125,14 @@ public struct GitHubIssue: Decodable, Hashable, Identifiable {
     }
 
     public init(
-        id: Int, number: Int, title: String, body: String? = nil, bodyHTML: String? = nil,
+        id: Int, nodeID: String? = nil, number: Int, title: String, body: String? = nil, bodyHTML: String? = nil,
         state: String = "open", stateReason: String? = nil, user: GitHubUser? = nil,
-        labels: [GitHubLabel] = [], comments: Int = 0, createdAt: Date = Date(),
+        labels: [GitHubLabel] = [], assignees: [GitHubUser] = [], milestone: GitHubMilestone? = nil,
+        comments: Int = 0, createdAt: Date = Date(),
         updatedAt: Date = Date(), closedAt: Date? = nil, htmlURL: URL, isPullRequest: Bool = false
     ) {
         self.id = id
+        self.nodeID = nodeID
         self.number = number
         self.title = title
         self.body = body
@@ -104,6 +141,8 @@ public struct GitHubIssue: Decodable, Hashable, Identifiable {
         self.stateReason = stateReason
         self.user = user
         self.labels = labels
+        self.assignees = assignees
+        self.milestone = milestone
         self.comments = comments
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -141,13 +180,25 @@ public struct GitHubRepository: Decodable, Hashable {
         public let admin: Bool
         public let maintain: Bool?
         public let push: Bool
+        public let triage: Bool?
     }
 
     /// Whether the account may write to it, which on GitHub includes editing
-    /// and deleting other people's comments.
+    /// other people's issues and editing and deleting their comments.
     public var canWrite: Bool {
         guard let permissions else { return false }
         return permissions.push || permissions.admin || permissions.maintain == true
+    }
+
+    /// Whether the account may triage issues, which includes labelling them.
+    public var canTriage: Bool {
+        canWrite || permissions?.triage == true
+    }
+
+    /// Whether the account administers it. Only admins may delete issues,
+    /// and in an organization only where its owners allow that.
+    public var canAdminister: Bool {
+        permissions?.admin == true
     }
 }
 

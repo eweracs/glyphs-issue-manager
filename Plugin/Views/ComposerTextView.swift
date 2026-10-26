@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var onImage: ((ImageAttachment) -> String?)?
+    /// Suggestions for what is typed after `@`, `#` or `/`.
+    var suggest: ((CompletionQuery) -> [Suggestion])?
     /// Takes focus when this turns true (Tab, Return, ⌘N).
     var wantsFocus = false
     var onFocusChange: (Bool) -> Void
@@ -51,6 +53,7 @@ struct ComposerTextView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? ImageAcceptingTextView else { return }
         context.coordinator.text = $text
         textView.onImage = onImage
+        textView.suggest = suggest
         textView.onFocusChange = onFocusChange
         textView.isEditable = context.environment.isEnabled
         if textView.string != text {
@@ -97,6 +100,7 @@ final class ImageAcceptingTextView: NSTextView {
         }
     }
     var onFocusChange: ((Bool) -> Void)?
+    var suggest: ((CompletionQuery) -> [Suggestion])?
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
@@ -106,14 +110,122 @@ final class ImageAcceptingTextView: NSTextView {
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { notifyFocus(false) }
+        if resigned {
+            notifyFocus(false)
+            hideSuggestions()
+        }
         return resigned
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { hideSuggestions() }
     }
 
     /// Esc leaves the text (a second Esc then goes back or cancels), rather
     /// than offering word completions.
     override func cancelOperation(_ sender: Any?) {
         window?.makeFirstResponder(nil)
+    }
+
+    // MARK: Suggestions
+
+    private let popup = SuggestionPopup()
+    private var query: CompletionQuery?
+    private var suggestions: [Suggestion] = []
+    private var selection = 0
+    /// Where the query starts that Esc or taking a suggestion closed the
+    /// list for; it stays closed there until another query begins.
+    private var closedAt: Int?
+
+    /// The list is showing: ↑ ↓ choose, Return or Tab take, Esc closes it.
+    var isSuggesting: Bool { popup.isVisible }
+
+    override func didChangeText() {
+        super.didChangeText()
+        updateSuggestions()
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if !stillSelecting { updateSuggestions() }
+    }
+
+    override func doCommand(by selector: Selector) {
+        if isSuggesting {
+            switch selector {
+            case #selector(moveUp(_:)):
+                moveSuggestion(by: -1)
+                return
+            case #selector(moveDown(_:)):
+                moveSuggestion(by: 1)
+                return
+            case #selector(insertNewline(_:)), #selector(insertTab(_:)):
+                takeSuggestion(at: selection)
+                return
+            case #selector(cancelOperation(_:)):
+                closedAt = query?.range.location
+                hideSuggestions()
+                return
+            default:
+                break
+            }
+        }
+        super.doCommand(by: selector)
+    }
+
+    private func updateSuggestions() {
+        let caret = selectedRange()
+        guard let suggest, window?.firstResponder === self, !hasMarkedText(), caret.length == 0,
+              let query = CompletionQuery.at(caret.location, in: string) else {
+            closedAt = nil
+            hideSuggestions()
+            return
+        }
+        guard closedAt != query.range.location else {
+            hideSuggestions()
+            return
+        }
+        closedAt = nil
+        let found = suggest(query)
+        guard !found.isEmpty, let window else {
+            hideSuggestions()
+            return
+        }
+        // The same suggestion stays selected while the list narrows.
+        let selectedID = suggestions.indices.contains(selection) ? suggestions[selection].id : nil
+        selection = found.firstIndex { $0.id == selectedID } ?? 0
+        self.query = query
+        suggestions = found
+        let anchor = firstRect(forCharacterRange: NSRange(location: query.range.location, length: 1), actualRange: nil)
+        popup.show(found, selected: selection, below: anchor, in: window) { [weak self] index in
+            self?.takeSuggestion(at: index)
+        }
+    }
+
+    private func moveSuggestion(by step: Int) {
+        guard !suggestions.isEmpty, let query, let window else { return }
+        selection = min(max(selection + step, 0), suggestions.count - 1)
+        let anchor = firstRect(forCharacterRange: NSRange(location: query.range.location, length: 1), actualRange: nil)
+        popup.show(suggestions, selected: selection, below: anchor, in: window) { [weak self] index in
+            self?.takeSuggestion(at: index)
+        }
+    }
+
+    /// Puts the suggestion in place of the query, as one undoable edit.
+    private func takeSuggestion(at index: Int) {
+        guard let query, suggestions.indices.contains(index) else { return }
+        let insertion = suggestions[index].insertion
+        closedAt = query.range.location
+        hideSuggestions()
+        insertText(insertion, replacementRange: query.range)
+    }
+
+    private func hideSuggestions() {
+        popup.hide()
+        query = nil
+        suggestions = []
+        selection = 0
     }
 
     /// Later, so SwiftUI isn't told in the middle of an update.

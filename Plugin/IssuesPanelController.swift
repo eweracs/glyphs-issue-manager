@@ -221,6 +221,11 @@ final class IssuesPanel: NSPanel {
         if event.type == .leftMouseDown, !isKeyWindow, canBecomeKey {
             makeKey()
         }
+        // While a text shows suggestions, its keys (Tab among them) are its own.
+        if event.type == .keyDown, (firstResponder as? ImageAcceptingTextView)?.isSuggesting == true {
+            super.sendEvent(event)
+            return
+        }
         if event.type == .keyDown, let key = Self.key(for: event, inField: firstResponder is NSText), onKey?(key) == true {
             return
         }

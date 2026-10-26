@@ -28,6 +28,12 @@ enum Defaults {
         set { store.set(newValue, forKey: prefix + "useGitHubCLI") }
     }
 
+    /// How the issue list is sorted (IssuesModel.SortOrder's raw value).
+    static var sortOrder: String? {
+        get { store.string(forKey: prefix + "sortOrder") }
+        set { store.set(newValue, forKey: prefix + "sortOrder") }
+    }
+
     // MARK: Repository chosen by hand, per font file
 
     static func repositoryOverride(for fontURL: URL) -> GitHubRepo? {

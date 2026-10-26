@@ -1,138 +1,52 @@
 # GitHub Issues for Glyphs
 
-A Swift plugin for Glyphs 3 and Glyphs 4 that shows the GitHub issues of the
+A plugin for Glyphs that shows the GitHub issues of the
 font you're working on in a floating panel. Open it with **Window → GitHub
 Issues**.
 
-**Install:** download `GitHubIssues.zip` from the
-[latest release](https://github.com/eweracs/glyphs-issue-manager/releases/latest),
-unzip it and double-click `GitHubIssuesG3.glyphsPlugin` (Glyphs 3) or
-`GitHubIssuesG4.glyphsPlugin` (Glyphs 4). Then restart Glyphs. Needs macOS 13
-or later.
+## Install
 
-- **Finds the repository by itself.** It walks up from the font file
-  (`.glyphs` or `.glyphspackage`) to the enclosing git repository and reads its
-  GitHub remote (`origin`, then `upstream`, then any GitHub remote). Linked
-  worktrees and SSH host aliases (`git@github-work:…`) work. If the font isn't
-  in a GitHub repository, choose one by hand; it is remembered per font file.
-- **Floats while you draw.** The panel stays above the font windows, hides when
-  Glyphs is in the background, and remembers its size and position.
-- **Adapts to its width.** Narrow, it is a compact palette: the list, and a
-  detail view you open and close with the back button (or Escape). From 780 pt
-  wide, list and detail sit side by side.
-- **Knows about glyphs.** Glyph names in an issue become chips in the list and
-  outline cells in the detail, drawn from your font in the current master.
-  Click one to open it in a new Edit tab. Names count when they are
+1. Open up the plugin manager in Glyphs. Search for GitHub Issues and install the plugin.
+2. Relaunch Glyphs.
+
+The plugin is automatically updated through the plugin manager. Needs macOS 13 or later.
+
+- **Automatic repository detection.** If your Glyphs file is in a git repository, the plugin finds the remote and pulls its issues automatically. You can also define a custom remote.
+- **Knows about glyphs.** Glyph names (with or without a `/`) in an issue are automatically detected. Click a glyph chip to open it in a new Edit tab. Names count when they are:
   - written in slash notation anywhere (`/adieresis`, `/T/o`, `/a.ss01`), or
-  - plain words in the title that are glyph names in the font ("k wider",
-    "N contrast", "Dieresiscomb too small").
-
+  - plain words in the title that are glyph names in the font ("k wider", "N contrast", "Dieresiscomb too small").
   Only names that exist in the font count.
-- **Current glyph filter.** Shows only issues about the glyph you're editing:
-  issues that mention it, one of its variants (`a.ss01` for `a`), or a glyph
-  that uses it as a component (`adieresis` for `a`).
-- **Search, labels, open/closed.** Search matches titles, bodies, labels and
-  numbers (`#12`); start with `/` to search for mentioned glyphs.
-- **New activity.** A dot marks issues that changed since you last opened them
-  in the panel.
-- **Bodies and comments** render the markdown issues usually contain: headings,
-  lists, task lists, quotes, code and images. Images use the signed URLs that
-  GitHub includes with each issue.
+- **Current glyph filter.** Shows only issues about the glyph you're editing: issues that mention it, one of its variants (`a.ss01` for `a`), or a glyph that uses it as a component (`adieresis` for `a`).
+- **New activity.** A dot marks issues that changed since you last opened them in the panel.
+- **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes to the previous or next issue. ↑ and ↓ go through the list as filtered (see **Keyboard**).
+- **Links as on GitHub.** `#12` and links to the repository's issues open them in the panel; commit SHAs and links to issues and commits are shortened, as on GitHub.
+- **Suggestions while typing.** `@` suggests people, `#` issues and `/` glyph names from the font; ↑ ↓ choose, Return or Tab take one, Esc closes the list.
 
-- **Activity.** Under each issue, its comments and history in time order,
-  on a rail: closed (as completed or not planned, or in a commit), reopened,
-  labels, assignees, milestones, title changes, commits that reference the
-  issue (with their messages), and mentions in other issues and pull
-  requests. Changes one person makes together become one line; runs of more
-  than six events collapse behind **Show n more events**; **All | Comments**
-  hides the events.
-- **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes
-  to the issue numbered just below or above, open or closed, whatever the
-  filters. ↑ and ↓ go through the list as filtered (see **Keyboard**).
-- **Close and reopen issues.** **Close issue** closes as completed; its menu
-  also offers **Close as Not Planned**, as on GitHub. Closed issues show
-  **Reopen issue**. In the compact palette the button sits in the bar at the
-  bottom of an issue, in the split view next to **Open on GitHub**, and both
-  are in a row's context menu.
-- **Comment.** A comment box under each issue (in the compact palette's
-  bottom bar; at the end of the activity in the split view). **Comment** or
-  ⌘↩ posts it; with text in the box, closing becomes **Close with comment**
-  (and **Reopen with comment**), as on GitHub. The glyph button adds the
-  current glyph's name, e.g. `/a`, or all selected glyphs', e.g.
-  `/Aring/Aacute/Abreve`. Unsent comments are kept per issue while Glyphs
-  runs. A comment's **…** menu edits it in place or deletes it (after asking:
-  Return deletes, Esc keeps it),
-  for its author and for anyone with write access to the repository, as on
-  GitHub; it also copies the comment's link.
-- **Images.** Paste an image (a screenshot, an image file copied in Finder)
-  into a comment or a new issue's description, or drop one in. It uploads to
-  GitHub as when pasted on the website: `![Uploading image.png…]()` stands in
-  until it is up, then becomes `![image](https://github.com/user-attachments/…)`.
-  PNG, JPEG, GIF, WebP and SVG go up as they are, other image types as PNG,
-  up to 10 MB each. Posting waits until the uploads are done.
-- **New issues.** The compose button in the title bar (or **New Issue…** in
-  the repository menu) opens a form for title, description and labels;
-  **Create issue** or ⌘↩ files it and opens it. **Cancel** keeps what you
-  typed for next time.
-
-Commenting, closing, creating and adding images need a sign-in (see below). Editing labels
-of existing issues happens on GitHub (**Open on GitHub**).
+Commenting, closing, editing, creating and adding images need a sign-in (see below).
 
 ## Keyboard
 
-The panel can be used without the mouse. **Window → GitHub Issues** opens it
-as the key window, with the issue list ready for the arrow keys. Cycle Through
-Windows (⌘`, ⌘< on German keyboards) reaches it as it does the font windows,
-and ⌘W closes it.
-
-**Tab** and **⇧Tab** go round what is on screen, showing a focus ring:
-
-- choosing an issue: the issue list, Open/Closed, *Current glyph*, the label
-  filter, the search field, New issue, Refresh, the repository menu;
-- with an issue open: the issue, the comment box, the button that adds the
-  selected glyphs, Comment (and a comment being edited, after the issue);
-- in a new issue: title, description, the glyph button, Create issue.
-
-Controls that are disabled or not shown are skipped: Comment while the comment
-box is empty, the glyph button while no glyphs are selected, *Current glyph*
-without a current glyph, Create issue without a title.
-
-Return or Space presses the focused button or opens its menu; ← → switch
-between Open and Closed. While the panel is the key window:
-
 | Key | |
 | --- | --- |
-| ↑ ↓ | in the list: the issue above or below. Choosing an issue they move a highlight; with an issue open they open the next one. ↓ in the search field goes on to the list |
-| Return | open the highlighted issue; with an issue open, go to its comment box |
-| Esc | out of the comment box or search field; then out of the issue (or a comment edit, or a new issue) back to choosing one |
-| ⌘↩ | post the comment, save the edited comment, or create the issue |
+| ↑ ↓ | in the list: the next/previous issue. |
+| Return | open the highlighted issue. With an issue open, go to its comment box |
+| Esc | One hierarchical layer up. |
+| ⌘↩ | post the comment, save the edited comment or issue, or create the issue |
 | ⇧⌘↩ | close the issue, or reopen it, posting the comment if there is one |
-| ⌥⌘← ⌥⌘→ | the issue numbered just below or above |
+| ⌥⌘← ⌥⌘→ | the previous/next issue |
 | ⌘F | search |
 | ⌘N | new issue |
 | ⌘R | refresh |
 
-⌘F, ⌘N and ⌘R act on the panel only while it is the key window; in the font
-windows they are Glyphs' own.
-
 ## Signing in
 
-Public repositories work without signing in, within GitHub's limit of 60
-requests an hour. For private repositories, or to raise that limit, the plugin
+Public repositories work without signing in. For private repositories, or to raise that limit, the plugin
 uses, in this order:
 
 1. a token you pasted (**Paste Token…**), stored in your Keychain, or
 2. your existing `gh` CLI login (`gh auth token`), if `gh` is installed.
 
-A fine-grained token with read-only access to **Issues** for your font
-repositories is enough to read them; to comment, close, reopen and create issues it needs
-**Issues: Read and write** (a classic token needs the `repo` scope; a `gh`
-login has it). Adding images needs write access to the repository itself, as
-on GitHub. **Sign Out** removes the saved token and stops using
-the `gh` login until you choose **Use gh CLI Login** again. Responses are
-cached by ETag, so refreshes that find nothing new don't use up the limit.
-Issues refresh every five minutes while the panel is open, and when you return
-to the panel after a minute or more.
+Issues refresh every five minutes while the panel is open.
 
 ## Build & install
 
@@ -147,18 +61,21 @@ GLYPHS=4 ./build.command install    # the same for Glyphs 4 (build/Glyphs 4/)
 
 Restart Glyphs after installing. `GLYPHS_APP`, `GLYPHS_PLUGINS` and `ARCHS`
 override the Glyphs app to compile against, the Plugins folder to install to,
-and the architectures to build (default `arm64 x86_64`); the comment at the top
-of `build.command` lists the rest. Releases are cut with `release.command`; see
-[RELEASING.md](RELEASING.md).
+and the architectures to build (default `arm64 x86_64`). The comment at the top
+of `build.command` lists the rest. Releases are cut with `release.command` (see
+[RELEASING.md](RELEASING.md)).
 
 ## Layout of the code
 
 ```
 Sources/IssueCore/   platform-independent, unit-tested with `swift test`
   GitRepository.swift   finds the repository and its GitHub remote from .git files
-  GitHubClient.swift    REST client: issues, timeline, comments, create/close/reopen, image uploads, ETags
+  GitHubClient.swift    REST client: issues, labels, assignees, milestones, timeline, comments,
+                        create/edit/close/reopen, image uploads, ETags; deletes issues through GraphQL
   ImageAttachment.swift an image to upload: type, size limit, markdown, placeholder
-  GitHubModels.swift    issue, comment, label and user models
+  GitHubModels.swift    issue, comment, label, milestone and user models
+  References.swift      #12, SHAs, @people and addresses in issue text, linked as GitHub does
+  CompletionQuery.swift the @person, #issue or /glyph being typed, for suggestions
   Timeline.swift        timeline entries → activity items, merging, collapsing
   GlyphMentions.swift   glyph names in issue text; relation to the current glyph
   MarkdownBlocks.swift  block-level markdown parsing for issue bodies
@@ -179,19 +96,12 @@ CHANGELOG.md         release notes; RELEASING.md describes the process
 `build.command` compiles `Sources/IssueCore` and `Plugin` together with `swiftc`
 against the headers inside Glyphs.app (GlyphsCore, and GlyphsApp in Glyphs 4)
 and links with
-`-undefined dynamic_lookup`; SwiftPM is only used to test the core.
+`-undefined dynamic_lookup`. SwiftPM is only used to test the core.
 
 ## Limitations
 
 - github.com only; GitHub Enterprise remotes aren't recognised.
-- Images upload through the endpoint `gh issue comment --attach` uses
-  (`uploads.github.com/user-attachments/assets`); GitHub documents the `gh`
-  flag, not the endpoint itself. Videos can't be added from the panel.
+- Images upload through the endpoint `gh issue comment --attach` uses (`uploads.github.com/user-attachments/assets`). GitHub documents the `gh` flag, not the endpoint itself. Videos can't be added from the panel.
 - Loads up to 1,000 issues per repository (pull requests are left out).
-- GitHub's REST timeline doesn't say which pull request closed an issue, or
-  which issue a duplicate points to. The pull request shows as its own
-  “mentioned this in” line; the duplicate line has no number.
-- Glyphs posts no notification for selection changes, so the current glyph is
-  polled while the panel is open, a few times a second.
-- Tried in Glyphs 3.5.1. The Glyphs 4 build compiles against Glyphs 4.1.1 but
-  hasn't been tried in it yet.
+- GitHub's REST timeline doesn't say which pull request closed an issue, or which issue a duplicate points to. The pull request shows as its own “mentioned this in” line. The duplicate line has no number.
+- Glyphs posts no notification for selection changes, so the current glyph is polled while the panel is open, a few times a second.

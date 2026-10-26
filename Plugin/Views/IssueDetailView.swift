@@ -18,13 +18,19 @@ struct IssueDetailView: View {
                         ActionErrorBanner(message: error.message) { model.actionError = nil }
                     }
                     glyphs
-                    MarkdownView(
-                        markdown: issue.body,
-                        html: issue.bodyHTML,
-                        glyphNames: Set(model.mentions(of: issue)),
-                        imageMaxWidth: compact ? nil : 460,
-                        openGlyph: { model.openGlyphs([$0]) }
-                    )
+                    if isEditing {
+                        IssueBodyEditor(issue: issue, model: model, compact: compact)
+                    } else {
+                        MarkdownView(
+                            markdown: issue.body,
+                            html: issue.bodyHTML,
+                            glyphNames: Set(model.mentions(of: issue)),
+                            imageMaxWidth: compact ? nil : 460,
+                            repo: model.repo,
+                            openGlyph: { model.openGlyphs([$0]) },
+                            openLink: model.openInPanel
+                        )
+                    }
                     comments
                     if !compact {
                         CommentBox(issue: issue, model: model)
@@ -42,6 +48,11 @@ struct IssueDetailView: View {
             }
         }
         .background(Style.content)
+    }
+
+    /// The title and description are being edited, in place.
+    private var isEditing: Bool {
+        model.editingIssue?.number == issue.number
     }
 
     private var navigationBar: some View {
@@ -69,6 +80,9 @@ struct IssueDetailView: View {
 
                 IconButton(systemImage: "link", label: "Copy link", size: 13) { model.copyLink(issue) }
                 IconButton(systemImage: "arrow.up.forward.square", label: "Open on GitHub", size: 13) { model.openOnGitHub(issue) }
+                if IssueMenu.hasItems(for: issue, model: model) {
+                    IssueMenuButton(issue: issue, model: model, bordered: false)
+                }
             }
             IssueStepper(issue: issue, model: model)
         }
@@ -86,12 +100,16 @@ struct IssueDetailView: View {
                     IssueStepper(issue: issue, model: model)
                         .padding(.bottom, 2)
                 }
-                Text(issue.title)
-                    .font(.system(size: compact ? 16 : 20, weight: .semibold))
-                    .foregroundColor(Style.text)
-                    .lineSpacing(compact ? 2 : 1)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                if isEditing {
+                    IssueTitleField(model: model, compact: compact)
+                } else {
+                    Text(issue.title)
+                        .font(.system(size: compact ? 16 : 20, weight: .semibold))
+                        .foregroundColor(Style.text)
+                        .lineSpacing(compact ? 2 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
                 FlowLayout(spacing: compact ? 7 : 8, lineSpacing: 6) {
                     StatePill(issue: issue)
                     // Wraps when the title column is narrow (beside the buttons).
@@ -102,11 +120,24 @@ struct IssueDetailView: View {
                         .frame(minHeight: 20)
                     if !compact {
                         ForEach(issue.labels) { LabelPill(label: $0).frame(height: 20) }
+                        if model.canEditLabels {
+                            LabelEditButton(issue: issue, model: model).frame(height: 20)
+                        }
                     }
                 }
-                if compact, !issue.labels.isEmpty {
+                if compact, !issue.labels.isEmpty || model.canEditLabels {
                     FlowLayout(spacing: 4, lineSpacing: 4) {
                         ForEach(issue.labels) { LabelPill(label: $0) }
+                        if model.canEditLabels {
+                            LabelEditButton(issue: issue, model: model)
+                        }
+                    }
+                }
+                // Each chip leaves itself out when it has nothing to show.
+                if !issue.assignees.isEmpty || issue.milestone != nil || model.canEditAssignees || model.canSetMilestone {
+                    FlowLayout(spacing: 6, lineSpacing: 6) {
+                        AssigneesChip(issue: issue, model: model)
+                        MilestoneChip(issue: issue, model: model)
                     }
                 }
             }
@@ -114,17 +145,27 @@ struct IssueDetailView: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     IssueStateButton(issue: issue, model: model)
-                    Button {
-                        model.openOnGitHub(issue)
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text("Open on GitHub")
+                    HStack(spacing: 6) {
+                        Button {
+                            model.copyLink(issue)
+                        } label: {
+                            Image(systemName: "link")
+                        }
+                        .buttonStyle(SquareIconButtonStyle())
+                        .help("Copy link")
+                        .accessibilityLabel("Copy link")
+                        Button {
+                            model.openOnGitHub(issue)
+                        } label: {
                             Image(systemName: "arrow.up.forward")
-                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .buttonStyle(SquareIconButtonStyle())
+                        .help("Open on GitHub")
+                        .accessibilityLabel("Open on GitHub")
+                        if IssueMenu.hasItems(for: issue, model: model) {
+                            IssueMenuButton(issue: issue, model: model)
                         }
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .fixedSize()
                 }
             }
         }

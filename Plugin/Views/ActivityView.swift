@@ -135,7 +135,9 @@ private struct ActivityCommentRow: View {
                         html: comment.bodyHTML,
                         glyphNames: glyphNames,
                         fontSize: compact ? 12.5 : 13,
-                        openGlyph: { model.openGlyphs([$0]) }
+                        repo: model.repo,
+                        openGlyph: { model.openGlyphs([$0]) },
+                        openLink: model.openInPanel
                     )
                 }
             }
@@ -169,7 +171,8 @@ private struct ActivityCommentRow: View {
         return VStack(alignment: .leading, spacing: 8) {
             ComposerEditor(
                 text: text, placeholder: "Comment", minHeight: 60, maxHeight: 280,
-                isFocused: model.focusBinding(for: .editComment)
+                isFocused: model.focusBinding(for: .editComment),
+                suggest: { model.suggestions(for: $0, issue: issue.number) }
             ) {
                 model.attach($0, to: .edit(id))
             }
@@ -401,7 +404,7 @@ private struct ActivityEventRow: View {
             .help("Open commit \(commit.shortSHA) on GitHub")
         case .issue(let ref):
             Button {
-                if let url = ref.url { NSWorkspace.shared.open(url) }
+                if let url = ref.url { model.open(url) }
             } label: {
                 HStack(spacing: 4) {
                     IssueRefIcon(ref: ref)
@@ -412,10 +415,15 @@ private struct ActivityEventRow: View {
                 .foregroundColor(.accentColor)
             }
             .buttonStyle(.plain)
-            .help(ref.isPullRequest ? "Open pull request on GitHub" : "Open issue on GitHub")
+            .help(help(for: ref))
         case .time(let date):
             Text("· " + RelativeTime.string(for: date)).foregroundColor(Style.secondaryText)
         }
+    }
+
+    private func help(for ref: IssueRef) -> String {
+        if model.isShownInPanel(ref.url) { return "Open issue #\(ref.number)" }
+        return ref.isPullRequest ? "Open pull request on GitHub" : "Open issue on GitHub"
     }
 
     private func issueRefText(_ ref: IssueRef) -> String {

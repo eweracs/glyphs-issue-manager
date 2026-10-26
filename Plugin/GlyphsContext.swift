@@ -54,6 +54,11 @@ enum GlyphsContext {
         font.glyph(forName: name) != nil
     }
 
+    /// Every glyph's name, in the font's order.
+    static func glyphNames(in font: GSFont) -> [String] {
+        font.glyphs.compactMap { $0.name }
+    }
+
     /// Component names of the glyph's layer in `masterID`, traversing nested components.
     static func componentNames(of name: String, in font: GSFont, masterID: String?) -> [String] {
         guard let layer = layer(of: name, in: font, masterID: masterID) else { return [] }

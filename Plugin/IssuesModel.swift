@@ -21,6 +21,39 @@ final class IssuesModel: ObservableObject {
         case open, closed
     }
 
+    /// The orders GitHub's issue list offers.
+    enum SortOrder: String, CaseIterable {
+        case newest, oldest, recentlyUpdated, leastRecentlyUpdated, mostCommented, leastCommented
+
+        var title: String {
+            switch self {
+            case .newest: return "Newest"
+            case .oldest: return "Oldest"
+            case .recentlyUpdated: return "Recently Updated"
+            case .leastRecentlyUpdated: return "Least Recently Updated"
+            case .mostCommented: return "Most Commented"
+            case .leastCommented: return "Least Commented"
+            }
+        }
+    }
+
+    enum AssigneeFilter: Hashable {
+        case anyone, me, nobody
+        case user(String)
+    }
+
+    enum MilestoneFilter: Hashable {
+        case any, none
+        /// By the milestone's number.
+        case milestone(Int)
+    }
+
+    /// What of an issue is being changed. One change at a time per issue,
+    /// so none is lost.
+    enum Aspect {
+        case labels, assignees, milestone
+    }
+
     // MARK: Context
 
     @Published private(set) var phase: Phase = .noFont
@@ -63,26 +96,49 @@ final class IssuesModel: ObservableObject {
     @Published private(set) var imageUploads: [String: DraftTarget] = [:]
 
     /// A text being written: a comment on an issue, the new issue's body,
-    /// or a comment being edited (by its GitHub id).
+    /// a comment being edited (by its GitHub id), or the description of an
+    /// issue being edited (by its number).
     enum DraftTarget: Hashable {
         case comment(Int)
         case newIssue
         case edit(Int)
+        case issueEdit(Int)
     }
 
     /// The comment being edited in place, with its text so far.
     @Published var editingComment: CommentEdit?
     @Published private(set) var isSavingComment = false
     @Published private(set) var deletingComments: Set<Int> = []
-    /// The signed-in account's login, and whether it may write to the
-    /// repository; together they say whose comments it may edit and delete.
+    /// The issue whose title and description are being edited in place.
+    @Published var editingIssue: IssueEdit?
+    @Published private(set) var isSavingIssue = false
+    /// Issues whose labels, assignees or milestone are being changed, and
+    /// issues being deleted.
+    @Published private(set) var changingIssues: [Int: Aspect] = [:]
+    @Published private(set) var deletingIssues: Set<Int> = []
+    /// The signed-in account's login, and what it may do in the repository:
+    /// together they say whose issues and comments it may edit and delete,
+    /// and whether it may label and delete issues.
     @Published private(set) var viewerLogin: String?
     @Published private(set) var canWriteRepository = false
+    @Published private(set) var canTriageRepository = false
+    @Published private(set) var canAdministerRepository = false
+    /// Every label of the repository, including those no issue has yet; the
+    /// people issues can be assigned to; the milestones, open and closed.
+    @Published private(set) var repositoryLabels: [GitHubLabel] = []
+    @Published private(set) var assignableUsers: [GitHubUser] = []
+    @Published private(set) var milestones: [GitHubMilestone] = []
 
     struct CommentEdit: Equatable {
         let issue: Int
         let commentID: Int
         var text: String
+    }
+
+    struct IssueEdit: Equatable {
+        let number: Int
+        var title: String
+        var body: String
     }
 
     // MARK: New issue
@@ -107,6 +163,11 @@ final class IssuesModel: ObservableObject {
         didSet { Defaults.currentGlyphOnly = currentGlyphOnly }
     }
     @Published var selectedLabels: Set<String> = []
+    @Published var assigneeFilter: AssigneeFilter = .anyone
+    @Published var milestoneFilter: MilestoneFilter = .any
+    @Published var sortOrder = Defaults.sortOrder.flatMap(SortOrder.init(rawValue:)) ?? .newest {
+        didSet { Defaults.sortOrder = sortOrder.rawValue }
+    }
     @Published var searchText = ""
     /// The issue ↑ and ↓ have reached in the compact list; Return opens it.
     @Published private(set) var highlightedIssueNumber: Int?
@@ -119,21 +180,24 @@ final class IssuesModel: ObservableObject {
 
     enum Field: Hashable {
         // Above the list, in Tab order.
-        case stateFilter, glyphFilter, labels, search, newIssue, refresh, repository
+        case stateFilter, glyphFilter, filters, search, newIssue, refresh, repository
         // An open issue.
-        case editComment, comment, insertGlyphs, postComment
+        case issueTitle, issueBody, editComment, comment, insertGlyphs, postComment
         // The new-issue form.
         case newIssueTitle, newIssueBody, createIssue
 
         /// Fields that take typing; Return and Space press the others.
         var takesText: Bool {
             switch self {
-            case .search, .editComment, .comment, .newIssueTitle, .newIssueBody: return true
+            case .search, .issueTitle, .issueBody, .editComment, .comment, .newIssueTitle, .newIssueBody: return true
             default: return false
             }
         }
 
-        static let issueFields: Set<Field> = [.editComment, .comment, .insertGlyphs, .postComment]
+        static let issueFields: Set<Field> = [.issueTitle, .issueBody, .editComment, .comment, .insertGlyphs, .postComment]
+        /// The fields of an issue or comment being edited, which go away
+        /// with the issue.
+        static let editFields: Set<Field> = [.issueTitle, .issueBody, .editComment]
         static let formFields: Set<Field> = [.newIssueTitle, .newIssueBody, .createIssue]
     }
 
@@ -271,6 +335,8 @@ final class IssuesModel: ObservableObject {
         expandedRuns = []
         selectedIssueNumber = nil
         selectedLabels = []
+        assigneeFilter = .anyone
+        milestoneFilter = .any
         refreshError = nil
         lastSync = nil
         updatingIssues = []
@@ -278,7 +344,15 @@ final class IssuesModel: ObservableObject {
         commentDrafts = [:]
         imageUploads = [:]
         editingComment = nil
+        editingIssue = nil
+        changingIssues = [:]
+        deletingIssues = []
         canWriteRepository = false
+        canTriageRepository = false
+        canAdministerRepository = false
+        repositoryLabels = []
+        assignableUsers = []
+        milestones = []
         isComposingIssue = false
         newIssueLabels = []
         newIssueError = nil
@@ -310,6 +384,7 @@ final class IssuesModel: ObservableObject {
                 self.phase = .ready
                 self.establishBaselineIfNeeded(repo)
                 self.loadAccount(for: repo)
+                self.loadRepositoryDetails(for: repo)
                 if let number = self.selectedIssueNumber { self.loadActivity(for: number) }
             } catch {
                 guard !Task.isCancelled, repo == self.repo else { return }
@@ -494,6 +569,7 @@ final class IssuesModel: ObservableObject {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
         return issues.filter { issue in
             if !selectedLabels.isEmpty, !issue.labels.contains(where: { selectedLabels.contains($0.name) }) { return false }
+            if !matches(issue, assignee: assigneeFilter) || !matches(issue, milestone: milestoneFilter) { return false }
             if currentGlyphOnly, currentGlyph != nil, relatedMentions(of: issue).isEmpty { return false }
             if !query.isEmpty, !matches(issue, query: query) { return false }
             return true
@@ -501,7 +577,59 @@ final class IssuesModel: ObservableObject {
     }
 
     var filteredIssues: [GitHubIssue] {
-        issuesMatchingFilters.filter { stateFilter == .open ? $0.isOpen : !$0.isOpen }
+        sorted(issuesMatchingFilters.filter { stateFilter == .open ? $0.isOpen : !$0.isOpen })
+    }
+
+    /// In `sortOrder`; ties go to the higher number, the newer issue.
+    private func sorted(_ list: [GitHubIssue]) -> [GitHubIssue] {
+        func by<T: Comparable>(_ key: (GitHubIssue) -> T, descending: Bool) -> [GitHubIssue] {
+            list.sorted { a, b in
+                let (x, y) = (key(a), key(b))
+                if x != y { return descending ? x > y : x < y }
+                return a.number > b.number
+            }
+        }
+        switch sortOrder {
+        case .newest: return by(\.createdAt, descending: true)
+        case .oldest: return by(\.createdAt, descending: false)
+        case .recentlyUpdated: return by(\.updatedAt, descending: true)
+        case .leastRecentlyUpdated: return by(\.updatedAt, descending: false)
+        case .mostCommented: return by(\.comments, descending: true)
+        case .leastCommented: return by(\.comments, descending: false)
+        }
+    }
+
+    /// Labels, assignee or milestone are filtered by (not search, state or
+    /// the current glyph, which show elsewhere).
+    var hasFilters: Bool {
+        !selectedLabels.isEmpty || assigneeFilter != .anyone || milestoneFilter != .any
+    }
+
+    func clearFilters() {
+        selectedLabels = []
+        assigneeFilter = .anyone
+        milestoneFilter = .any
+    }
+
+    private func matches(_ issue: GitHubIssue, assignee filter: AssigneeFilter) -> Bool {
+        switch filter {
+        case .anyone: return true
+        case .nobody: return issue.assignees.isEmpty
+        case .me: return viewerLogin.map { isAssigned($0, to: issue) } ?? false
+        case .user(let login): return isAssigned(login, to: issue)
+        }
+    }
+
+    private func matches(_ issue: GitHubIssue, milestone filter: MilestoneFilter) -> Bool {
+        switch filter {
+        case .any: return true
+        case .none: return issue.milestone == nil
+        case .milestone(let number): return issue.milestone?.number == number
+        }
+    }
+
+    func isAssigned(_ login: String, to issue: GitHubIssue) -> Bool {
+        issue.assignees.contains { $0.login.caseInsensitiveCompare(login) == .orderedSame }
     }
 
     /// All issues in the selected state, ignoring the other filters.
@@ -515,10 +643,39 @@ final class IssuesModel: ObservableObject {
         return (open, matching.count - open)
     }
 
+    /// The repository's labels, and any an issue has that weren't loaded.
     var allLabels: [GitHubLabel] {
         var byName: [String: GitHubLabel] = [:]
-        for label in issues.flatMap(\.labels) where byName[label.name] == nil { byName[label.name] = label }
+        for label in repositoryLabels + issues.flatMap(\.labels) where byName[label.name] == nil { byName[label.name] = label }
         return byName.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// People to assign or filter by: those who can be assigned, and anyone
+    /// assigned now.
+    var allAssignees: [GitHubUser] {
+        var byLogin: [String: GitHubUser] = [:]
+        for user in assignableUsers + issues.flatMap(\.assignees) where byLogin[user.login.lowercased()] == nil {
+            byLogin[user.login.lowercased()] = user
+        }
+        return byLogin.values.sorted { $0.login.localizedCaseInsensitiveCompare($1.login) == .orderedAscending }
+    }
+
+    /// The milestones, and any an issue is in that weren't loaded: open ones
+    /// first, soonest due first (those without a date after them).
+    var allMilestones: [GitHubMilestone] {
+        var byNumber: [Int: GitHubMilestone] = [:]
+        for milestone in milestones + issues.compactMap(\.milestone) where byNumber[milestone.number] == nil {
+            byNumber[milestone.number] = milestone
+        }
+        return byNumber.values.sorted { a, b in
+            if a.isOpen != b.isOpen { return a.isOpen }
+            switch (a.dueOn, b.dueOn) {
+            case let (x?, y?) where x != y: return x < y
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return a.title.localizedStandardCompare(b.title) == .orderedAscending
+            }
+        }
     }
 
     private func matches(_ issue: GitHubIssue, query: String) -> Bool {
@@ -546,10 +703,13 @@ final class IssuesModel: ObservableObject {
         if let field = focusedField {
             let stays = number == nil
                 ? !Field.issueFields.contains(field) && !Field.formFields.contains(field)
-                : (Field.issueFields.contains(field) && field != .editComment) || field == .search
+                : (Field.issueFields.contains(field) && !Field.editFields.contains(field)) || field == .search
             if !stays { focusedField = nil }
         }
-        if number != selectedIssueNumber { editingComment = nil }
+        if number != selectedIssueNumber {
+            editingComment = nil
+            editingIssue = nil
+        }
         selectedIssueNumber = number
     }
 
@@ -802,18 +962,18 @@ final class IssuesModel: ObservableObject {
     }
 
     /// The stops Tab and ⇧Tab go round, in order. Choosing an issue: the
-    /// list, then the controls above it. With an issue open: the list, a
-    /// comment being edited, the comment box and its buttons. A new issue:
-    /// its fields and Create. Stops that are disabled or not on screen are
-    /// skipped (`isTabStop`).
+    /// list, then the controls above it. With an issue open: the list, its
+    /// title and description or a comment being edited, the comment box and
+    /// its buttons. A new issue: its fields and Create. Stops that are
+    /// disabled or not on screen are skipped (`isTabStop`).
     private var tabOrder: [Field?] {
         if isComposingIssue {
             return [.newIssueTitle, .newIssueBody, .insertGlyphs, .createIssue]
         }
         if selectedIssueNumber != nil {
-            return [nil, .editComment, .comment, .insertGlyphs, .postComment]
+            return [nil, .issueTitle, .issueBody, .editComment, .comment, .insertGlyphs, .postComment]
         }
-        return [nil, .stateFilter, .glyphFilter, .labels, .search, .newIssue, .refresh, .repository]
+        return [nil, .stateFilter, .glyphFilter, .filters, .search, .newIssue, .refresh, .repository]
     }
 
     /// Whether Tab stops at `field` now: it is shown and can be used.
@@ -824,6 +984,8 @@ final class IssuesModel: ObservableObject {
             return currentGlyph != nil || currentGlyphOnly
         case .refresh:
             return !isRefreshing
+        case .issueTitle, .issueBody:
+            return editingIssue != nil && editingIssue?.number == selectedIssueNumber
         case .editComment:
             return editingComment != nil && editingComment?.issue == selectedIssueNumber
         case .comment:
@@ -903,7 +1065,7 @@ final class IssuesModel: ObservableObject {
             stateFilter = stateFilter == .open ? .closed : .open
         case .glyphFilter:
             if currentGlyph != nil || currentGlyphOnly { currentGlyphOnly.toggle() }
-        case .labels, .repository:
+        case .filters, .repository:
             menuRequest = field
         case .newIssue:
             startNewIssue()
@@ -919,7 +1081,7 @@ final class IssuesModel: ObservableObject {
             if let issue = selectedIssue { postComment(on: issue) }
         case .createIssue:
             createIssue()
-        case .search, .editComment, .comment, .newIssueTitle, .newIssueBody:
+        case .search, .issueTitle, .issueBody, .editComment, .comment, .newIssueTitle, .newIssueBody:
             return false
         }
         return true
@@ -928,6 +1090,10 @@ final class IssuesModel: ObservableObject {
     /// Esc outside text fields steps back: out of an edit, a new issue or
     /// an open issue to choosing one; from a button to the list.
     private func stepBack() -> Bool {
+        if editingIssue != nil {
+            cancelEditingIssue()
+            return true
+        }
         if editingComment != nil {
             cancelEditing()
             return true
@@ -946,19 +1112,243 @@ final class IssuesModel: ObservableObject {
         return true
     }
 
+    // MARK: - Editing, labelling and deleting issues
+
+    /// Whether the signed-in account may change the issue's title and
+    /// description: its author may, and so may anyone with write access.
+    func canEdit(_ issue: GitHubIssue) -> Bool {
+        guard canChangeIssues else { return false }
+        return canWriteRepository || isViewer(issue.user)
+    }
+
+    /// Labelling and assigning take triage or write access, even on your
+    /// own issues.
+    var canEditLabels: Bool { canChangeIssues && canTriageRepository }
+    var canEditAssignees: Bool { canChangeIssues && canTriageRepository }
+
+    /// Milestones take write access: GitHub drops the change silently for
+    /// anyone else.
+    var canSetMilestone: Bool { canChangeIssues && canWriteRepository }
+
+    /// Only admins may delete issues (and in an organization only where its
+    /// owners allow it, which GitHub doesn't tell; it refuses otherwise).
+    var canDeleteIssues: Bool { canChangeIssues && canAdministerRepository }
+
+    private func isViewer(_ user: GitHubUser?) -> Bool {
+        guard let viewerLogin, let login = user?.login else { return false }
+        return login.caseInsensitiveCompare(viewerLogin) == .orderedSame
+    }
+
+    /// Opens the issue's title and description for editing, in place.
+    func startEditing(_ issue: GitHubIssue) {
+        guard canEdit(issue) else { return }
+        if selectedIssueNumber != issue.number { select(issue.number) }
+        isComposingIssue = false
+        editingComment = nil
+        editingIssue = IssueEdit(number: issue.number, title: issue.title, body: issue.body ?? "")
+        focusedField = .issueTitle
+    }
+
+    func cancelEditingIssue() {
+        editingIssue = nil
+        if focusedField == .issueTitle || focusedField == .issueBody { focus(nil) }
+    }
+
+    var canSaveIssueEdit: Bool {
+        guard let edit = editingIssue else { return false }
+        return !isSavingIssue && !isUploadingImages(into: .issueEdit(edit.number))
+            && !edit.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Sends what changed of the title and description; nothing changed
+    /// just ends the edit.
+    func saveIssueEdit() {
+        guard let repo, let edit = editingIssue, canSaveIssueEdit,
+              let issue = issues.first(where: { $0.number == edit.number }) else { return }
+        let title = edit.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newTitle = title == issue.title ? nil : title
+        let newBody = edit.body == (issue.body ?? "") ? nil : edit.body
+        guard newTitle != nil || newBody != nil else {
+            cancelEditingIssue()
+            return
+        }
+        isSavingIssue = true
+        actionError = nil
+        let client = self.client
+        Task { [weak self] in
+            let result: Result<GitHubIssue, Error>
+            do {
+                result = .success(try await client.editIssue(edit.number, title: newTitle, body: newBody, in: repo))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self else { return }
+            self.isSavingIssue = false
+            guard repo == self.repo else { return }
+            switch result {
+            case .success(let updated):
+                self.store(updated)
+                if self.editingIssue?.number == edit.number { self.cancelEditingIssue() }
+                // A new title shows in the activity.
+                self.loadActivity(for: edit.number, force: true)
+            case .failure(let error):
+                self.actionError = ActionError(number: edit.number, message: self.describeChangeError(error, repo: repo))
+            }
+        }
+    }
+
+    /// Adds the label to the issue, or takes it off.
+    func toggleLabel(_ name: String, on issue: GitHubIssue) {
+        guard canEditLabels, let current = issues.first(where: { $0.number == issue.number }) else { return }
+        var names = current.labels.map(\.name)
+        if let index = names.firstIndex(of: name) {
+            names.remove(at: index)
+        } else {
+            names.append(name)
+        }
+        let number = issue.number
+        change(number, .labels) { client, repo in
+            try await client.setLabels(names, onIssue: number, in: repo)
+            return try await client.issue(number, in: repo)
+        }
+    }
+
+    /// Assigns the person to the issue, or unassigns them.
+    func toggleAssignee(_ login: String, on issue: GitHubIssue) {
+        guard canEditAssignees, let current = issues.first(where: { $0.number == issue.number }) else { return }
+        let assigned = isAssigned(login, to: current)
+        let number = issue.number
+        change(number, .assignees) { client, repo in
+            assigned
+                ? try await client.removeAssignees([login], fromIssue: number, in: repo)
+                : try await client.addAssignees([login], toIssue: number, in: repo)
+        }
+    }
+
+    /// Puts the issue in the milestone, or (nil) in none.
+    func setMilestone(_ milestone: GitHubMilestone?, on issue: GitHubIssue) {
+        guard canSetMilestone, let current = issues.first(where: { $0.number == issue.number }),
+              current.milestone?.number != milestone?.number else { return }
+        let number = issue.number
+        change(number, .milestone) { client, repo in
+            try await client.setMilestone(milestone?.number, onIssue: number, in: repo)
+        }
+    }
+
+    /// Runs a change of the issue's labels, assignees or milestone, unless
+    /// one is under way, and shows the issue as GitHub sends it back.
+    private func change(_ number: Int, _ aspect: Aspect, _ operation: @escaping (GitHubClient, GitHubRepo) async throws -> GitHubIssue) {
+        guard let repo, changingIssues[number] == nil else { return }
+        changingIssues[number] = aspect
+        actionError = nil
+        let client = self.client
+        Task { [weak self] in
+            let result: Result<GitHubIssue, Error>
+            do {
+                result = .success(try await operation(client, repo))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self else { return }
+            self.changingIssues[number] = nil
+            guard repo == self.repo else { return }
+            switch result {
+            case .success(let updated):
+                self.store(updated)
+                self.loadActivity(for: number, force: true)
+            case .failure(let error):
+                self.report(self.describeChangeError(error, repo: repo), about: number)
+            }
+        }
+    }
+
+    /// Asks, then deletes the issue on GitHub.
+    func delete(_ issue: GitHubIssue) {
+        guard repo != nil, canDeleteIssues, let nodeID = issue.nodeID else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete issue #\(issue.number)?"
+        alert.informativeText = "“\(issue.title)” and its comments are removed from GitHub for everyone. This can’t be undone."
+        alert.alertStyle = .warning
+        // As for comments: the default button, so Return deletes and Esc cancels.
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        let number = issue.number
+        present(alert) { [weak self] response in
+            guard let self, response == .alertFirstButtonReturn, let repo = self.repo else { return }
+            self.deletingIssues.insert(number)
+            self.actionError = nil
+            let client = self.client
+            Task { [weak self] in
+                var failure: Error?
+                do {
+                    try await client.deleteIssue(nodeID: nodeID)
+                } catch {
+                    failure = error
+                }
+                guard let self else { return }
+                self.deletingIssues.remove(number)
+                guard repo == self.repo else { return }
+                if let failure {
+                    self.report(self.describeDeleteError(failure, repo: repo), about: number)
+                } else {
+                    self.remove(number)
+                }
+            }
+        }
+    }
+
+    /// Takes a deleted issue out; if it was open, back to the list, on the
+    /// issue below it (or above, at the end).
+    private func remove(_ number: Int) {
+        if selectedIssueNumber == number {
+            let list = filteredIssues
+            let neighbor = list.firstIndex { $0.number == number }.flatMap { index in
+                list.indices.contains(index + 1) ? list[index + 1] : (index > 0 ? list[index - 1] : nil)
+            }
+            select(nil)
+            focus(nil)
+            highlightedIssueNumber = neighbor?.number
+        }
+        issues.removeAll { $0.number == number }
+        activity[number] = nil
+        activityLoadedAt[number] = nil
+        commentDrafts[number] = nil
+        if editingIssue?.number == number { editingIssue = nil }
+        if editingComment?.issue == number { editingComment = nil }
+        if actionError?.number == number { actionError = nil }
+    }
+
+    /// Puts an issue GitHub sent back in place of the one shown. Our own
+    /// change isn't new activity.
+    private func store(_ updated: GitHubIssue) {
+        if let index = issues.firstIndex(where: { $0.number == updated.number }) {
+            issues[index] = updated
+        }
+        markSeen(updated.number)
+    }
+
+    /// A failed change shows above the issue when it is open; otherwise
+    /// (changed from the list) in an alert.
+    private func report(_ message: String, about number: Int) {
+        if selectedIssueNumber == number {
+            actionError = ActionError(number: number, message: message)
+        } else {
+            showAlert("Couldn’t change #\(number)", message)
+        }
+    }
+
     // MARK: - Editing and deleting comments
 
     /// Whether the signed-in account may edit and delete the comment: its
     /// author may, and so may anyone with write access to the repository.
     func canModify(_ comment: ActivityComment) -> Bool {
         guard canChangeIssues, comment.commentID != nil else { return false }
-        if canWriteRepository { return true }
-        guard let viewerLogin, let author = comment.author?.login else { return false }
-        return author.caseInsensitiveCompare(viewerLogin) == .orderedSame
+        return canWriteRepository || isViewer(comment.author)
     }
 
     func startEditing(_ comment: ActivityComment, on issue: GitHubIssue) {
         guard let id = comment.commentID else { return }
+        editingIssue = nil
         editingComment = CommentEdit(issue: issue.number, commentID: id, text: comment.body ?? "")
         focusedField = .editComment
     }
@@ -1039,21 +1429,42 @@ final class IssuesModel: ObservableObject {
         }
     }
 
-    /// Who is signed in, and whether they may write to the repository.
+    /// Who is signed in, and what they may do in the repository.
     private func loadAccount(for repo: GitHubRepo) {
         guard client.token != nil else {
             viewerLogin = nil
             canWriteRepository = false
+            canTriageRepository = false
+            canAdministerRepository = false
             return
         }
         let client = self.client
         Task { [weak self] in
             async let viewer = try? client.viewer()
             async let repository = try? client.repository(repo)
-            let (login, canWrite) = await (viewer?.login, repository?.canWrite ?? false)
+            let (login, access) = await (viewer?.login, repository)
             guard let self, repo == self.repo else { return }
             self.viewerLogin = login
-            self.canWriteRepository = canWrite
+            self.canWriteRepository = access?.canWrite ?? false
+            self.canTriageRepository = access?.canTriage ?? false
+            self.canAdministerRepository = access?.canAdminister ?? false
+        }
+    }
+
+    /// The repository's labels, assignable people and milestones, for the
+    /// filters, for changing issues and for suggestions. Any that can't be
+    /// loaded, those on the issues stand in for.
+    private func loadRepositoryDetails(for repo: GitHubRepo) {
+        let client = self.client
+        Task { [weak self] in
+            async let labels = try? client.labels(for: repo)
+            async let users = try? client.assignableUsers(for: repo)
+            async let milestones = try? client.milestones(for: repo)
+            let loaded = await (labels, users, milestones)
+            guard let self, repo == self.repo else { return }
+            if let labels = loaded.0 { self.repositoryLabels = labels }
+            if let users = loaded.1 { self.assignableUsers = users }
+            if let milestones = loaded.2 { self.milestones = milestones }
         }
     }
 
@@ -1114,6 +1525,7 @@ final class IssuesModel: ObservableObject {
         case .comment(let number): return commentDrafts[number] ?? ""
         case .newIssue: return newIssueBody
         case .edit(let id): return editingComment?.commentID == id ? editingComment?.text ?? "" : ""
+        case .issueEdit(let number): return editingIssue?.number == number ? editingIssue?.body ?? "" : ""
         }
     }
 
@@ -1127,6 +1539,7 @@ final class IssuesModel: ObservableObject {
         case .comment(let number): commentDrafts[number] = replaced
         case .newIssue: newIssueBody = replaced
         case .edit: editingComment?.text = replaced
+        case .issueEdit: editingIssue?.body = replaced
         }
         return true
     }
@@ -1136,6 +1549,7 @@ final class IssuesModel: ObservableObject {
         case .comment(let number): actionError = ActionError(number: number, message: message)
         case .newIssue: newIssueError = message
         case .edit: if let number = editingComment?.issue { actionError = ActionError(number: number, message: message) }
+        case .issueEdit(let number): actionError = ActionError(number: number, message: message)
         }
     }
 
@@ -1144,6 +1558,7 @@ final class IssuesModel: ObservableObject {
         case .comment(let number): if actionError?.number == number { actionError = nil }
         case .newIssue: newIssueError = nil
         case .edit: if actionError?.number == editingComment?.issue { actionError = nil }
+        case .issueEdit(let number): if actionError?.number == number { actionError = nil }
         }
     }
 
@@ -1155,6 +1570,17 @@ final class IssuesModel: ObservableObject {
             return "GitHub rejected the token. Sign in again from the repository menu."
         default:
             return "Couldn’t upload \(image.fileName). \(error.localizedDescription)"
+        }
+    }
+
+    private func describeDeleteError(_ error: Error, repo: GitHubRepo) -> String {
+        switch error as? GitHubError {
+        case .forbidden(_)?, .notFound?:
+            return "GitHub didn’t delete it. Deleting issues needs admin access to \(repo), and in an organization its owners must allow it; a fine-grained token also needs Issues: Read and write."
+        case .unauthorized?:
+            return "GitHub rejected the token. Sign in again from the repository menu."
+        default:
+            return error.localizedDescription
         }
     }
 
@@ -1215,6 +1641,74 @@ final class IssuesModel: ObservableObject {
         GlyphsContext.openTab(with: names)
     }
 
+    // MARK: - Suggestions
+
+    /// Suggestions for what is typed in a text about the issue `number`
+    /// (nil: a new issue). People: those in the issue first, then whoever
+    /// can be assigned or has opened issues. Issues: by number or title,
+    /// recently updated first. Glyphs: by name in the font's order; after a
+    /// bare `/`, the selected glyphs.
+    func suggestions(for query: CompletionQuery, issue number: Int?) -> [Suggestion] {
+        let typed = query.text.lowercased()
+        let limit = 8
+        switch query.trigger {
+        case .person:
+            let issue = number.flatMap { number in issues.first { $0.number == number } }
+            let commenters = (number.flatMap { activity[$0] } ?? []).compactMap { item -> GitHubUser? in
+                if case .comment(let comment) = item { return comment.author }
+                return nil
+            }
+            let people = [issue?.user].compactMap { $0 } + commenters + (issue?.assignees ?? [])
+                + assignableUsers + issues.compactMap(\.user)
+            var seen = Set<String>()
+            let unique = people.filter { seen.insert($0.login.lowercased()).inserted }
+            let starting = unique.filter { $0.login.lowercased().hasPrefix(typed) }
+            let containing = typed.isEmpty ? [] : unique.filter {
+                !$0.login.lowercased().hasPrefix(typed) && $0.login.lowercased().contains(typed)
+            }
+            return (starting + containing).prefix(limit).map { Suggestion(kind: .person($0)) }
+
+        case .issue:
+            let others = issues.filter { $0.number != number }
+            let found: [GitHubIssue]
+            if typed.isEmpty {
+                found = others.sorted { $0.updatedAt > $1.updatedAt }
+            } else if let typedNumber = Int(typed) {
+                found = others.filter { String($0.number).hasPrefix(typed) }.sorted { a, b in
+                    (a.number == typedNumber ? 0 : 1, -a.number) < (b.number == typedNumber ? 0 : 1, -b.number)
+                }
+            } else {
+                found = others.filter { $0.title.lowercased().contains(typed) }.sorted { a, b in
+                    a.isOpen != b.isOpen ? a.isOpen : a.updatedAt > b.updatedAt
+                }
+            }
+            return found.prefix(limit).map { Suggestion(kind: .issue($0)) }
+
+        case .glyph:
+            guard let font = currentFont else { return [] }
+            let names: [String]
+            if query.text.isEmpty {
+                names = selectedGlyphs
+            } else {
+                // The name typed, then names that start with it, then those
+                // that do in another case.
+                var exact: [String] = [], starting: [String] = [], folded: [String] = []
+                for name in GlyphsContext.glyphNames(in: font) {
+                    if name == query.text {
+                        exact.append(name)
+                    } else if name.hasPrefix(query.text) {
+                        starting.append(name)
+                    } else if name.lowercased().hasPrefix(typed) {
+                        folded.append(name)
+                    }
+                    if exact.count + starting.count >= limit { break }
+                }
+                names = exact + starting + folded
+            }
+            return names.prefix(limit).map { Suggestion(kind: .glyph($0, outline(of: $0))) }
+        }
+    }
+
     // MARK: - New activity
 
     func hasNewActivity(_ issue: GitHubIssue) -> Bool {
@@ -1240,6 +1734,26 @@ final class IssuesModel: ObservableObject {
 
     func openOnGitHub(_ issue: GitHubIssue) {
         NSWorkspace.shared.open(issue.htmlURL)
+    }
+
+    /// Whether a link leads to one of the repository's issues, which opens
+    /// in the panel.
+    func isShownInPanel(_ url: URL?) -> Bool {
+        guard let url, let repo, let number = References.issueNumber(in: url, repo: repo) else { return false }
+        return issues.contains { $0.number == number }
+    }
+
+    /// Opens a link to one of the repository's issues in the panel. False
+    /// for any other link, for the caller to open in the browser.
+    func openInPanel(_ url: URL) -> Bool {
+        guard isShownInPanel(url), let repo, let number = References.issueNumber(in: url, repo: repo) else { return false }
+        select(number)
+        return true
+    }
+
+    /// A link: in the panel if it leads to one of the issues, otherwise in the browser.
+    func open(_ url: URL) {
+        if !openInPanel(url) { NSWorkspace.shared.open(url) }
     }
 
     func copyLink(_ issue: GitHubIssue) {

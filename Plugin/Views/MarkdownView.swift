@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Renders an issue or comment body. `/glyphname` mentions that exist in the
-/// font become links that open the glyph in a new Edit tab.
+/// font become links that open the glyph in a new Edit tab; issues, commits,
+/// people and web addresses become links as on GitHub (References).
 struct MarkdownView: View {
     let markdown: String?
     let html: String?
@@ -9,13 +10,19 @@ struct MarkdownView: View {
     let glyphNames: Set<String>
     var fontSize: CGFloat = 13
     var imageMaxWidth: CGFloat?
+    /// The repository `#12` and bare SHAs refer to.
+    var repo: GitHubRepo?
     let openGlyph: (String) -> Void
+    /// Opens a link in the panel, if it can (one of the repository's
+    /// issues); otherwise it opens in the browser.
+    var openLink: ((URL) -> Bool)?
 
     static let glyphScheme = "glyphs-issue-glyph"
 
     var body: some View {
         let blocks = MarkdownParser.blocks(from: markdown ?? "")
         let imageSources = html.map(MarkdownParser.imageSources(inHTML:)) ?? []
+        let linked = html.map(References.Linked.init(html:))
         let numbered = number(blocks)
 
         VStack(alignment: .leading, spacing: 10) {
@@ -25,7 +32,7 @@ struct MarkdownView: View {
                     .foregroundColor(Style.secondaryText)
             }
             ForEach(numbered, id: \.index) { item in
-                view(for: item.block, imageSource: item.imageOrdinal.flatMap { imageSources.indices.contains($0) ? imageSources[$0] : nil })
+                view(for: item.block, imageSource: item.imageOrdinal.flatMap { imageSources.indices.contains($0) ? imageSources[$0] : nil }, linked: linked)
             }
         }
         .font(.system(size: fontSize))
@@ -38,6 +45,7 @@ struct MarkdownView: View {
                 if !name.isEmpty { openGlyph(name) }
                 return .handled
             }
+            if let openLink, openLink(url) { return .handled }
             return .systemAction
         })
     }
@@ -60,7 +68,8 @@ struct MarkdownView: View {
     }
 
     @ViewBuilder
-    private func view(for block: MarkdownBlock, imageSource: String?) -> some View {
+    private func view(for block: MarkdownBlock, imageSource: String?, linked: References.Linked?) -> some View {
+        let inline = { (text: String) in self.inline(text, linked: linked) }
         switch block {
         case .paragraph(let text):
             Text(inline(text))
@@ -113,13 +122,35 @@ struct MarkdownView: View {
         }
     }
 
-    private func inline(_ text: String) -> AttributedString {
+    private func inline(_ text: String, linked: References.Linked?) -> AttributedString {
         var attributed = (try? AttributedString(
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(text)
+        if let repo { linkReferences(in: &attributed, repo: repo, linked: linked) }
         linkGlyphMentions(in: &attributed)
         return attributed
+    }
+
+    /// Links issues, commits, people and addresses as GitHub does, showing
+    /// links to issues and commits shortened and SHAs in code type. Text in
+    /// code or already in a link is left alone.
+    private func linkReferences(in attributed: inout AttributedString, repo: GitHubRepo, linked: References.Linked?) {
+        let plain = String(attributed.characters)
+        // From the end, so the ranges before stay where they are.
+        for match in References.find(in: plain, repo: repo, linked: linked).reversed() {
+            guard let range = Range(match.range, in: plain) else { continue }
+            let start = attributed.characters.index(attributed.startIndex, offsetBy: plain.distance(from: plain.startIndex, to: range.lowerBound))
+            let end = attributed.characters.index(start, offsetBy: plain.distance(from: range.lowerBound, to: range.upperBound))
+            let runs = attributed[start..<end].runs
+            if runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
+            var replacement = AttributedString(match.display, attributes: runs.first?.attributes ?? AttributeContainer())
+            replacement.link = match.url
+            if match.isCommit {
+                replacement.inlinePresentationIntent = (replacement.inlinePresentationIntent ?? []).union(.code)
+            }
+            attributed.replaceSubrange(start..<end, with: replacement)
+        }
     }
 
     /// Turns `/name` into a link for every glyph name that exists in the font.
@@ -136,7 +167,8 @@ struct MarkdownView: View {
             var searchStart = attributed.startIndex
             while searchStart < attributed.endIndex,
                   let range = attributed[searchStart...].range(of: token) {
-                if !continuesName(after: range.upperBound, in: attributed) {
+                // Not inside a link: an address or reference keeps its own.
+                if !continuesName(after: range.upperBound, in: attributed), !attributed[range].runs.contains(where: { $0.link != nil }) {
                     attributed[range].link = url
                 }
                 searchStart = range.upperBound

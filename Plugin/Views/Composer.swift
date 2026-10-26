@@ -10,6 +10,8 @@ struct ComposerEditor: View {
     var maxHeight: CGFloat = 160
     /// Kept in step with the text view's focus, both ways.
     var isFocused: Binding<Bool>?
+    /// Suggestions for `@people`, `#issues` and `/glyphs` (CompletionQuery).
+    var suggest: ((CompletionQuery) -> [Suggestion])?
     var onImage: ((ImageAttachment) -> String?)?
     @State private var focused = false
 
@@ -23,7 +25,7 @@ struct ComposerEditor: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundColor(.clear)
                 .accessibilityHidden(true)
-            ComposerTextView(text: $text, onImage: onImage, wantsFocus: isFocused?.wrappedValue ?? false) { value in
+            ComposerTextView(text: $text, onImage: onImage, suggest: suggest, wantsFocus: isFocused?.wrappedValue ?? false) { value in
                 focused = value
                 if let isFocused, isFocused.wrappedValue != value { isFocused.wrappedValue = value }
             }
@@ -113,7 +115,8 @@ struct CommentBar: View {
         VStack(spacing: 8) {
             ComposerEditor(
                 text: draft, placeholder: "Leave a comment", minHeight: 34, maxHeight: 150,
-                isFocused: model.focusBinding(for: .comment)
+                isFocused: model.focusBinding(for: .comment),
+                suggest: { model.suggestions(for: $0, issue: issue.number) }
             ) {
                 model.attach($0, to: .comment(issue.number))
             }
@@ -156,7 +159,8 @@ struct CommentBox: View {
         VStack(alignment: .leading, spacing: 8) {
             ComposerEditor(
                 text: draft, placeholder: "Leave a comment", minHeight: 72, maxHeight: 240,
-                isFocused: model.focusBinding(for: .comment)
+                isFocused: model.focusBinding(for: .comment),
+                suggest: { model.suggestions(for: $0, issue: issue.number) }
             ) {
                 model.attach($0, to: .comment(issue.number))
             }
@@ -209,8 +213,8 @@ private struct CommentButton: View {
         .buttonStyle(PrimaryButtonStyle())
         .keyboardFocusRing(model.focusedField == .postComment)
         .fixedSize()
-        // While a comment is edited, ⌘↩ saves that instead.
-        .keyboardShortcut(model.editingComment == nil ? KeyboardShortcut(.return, modifiers: .command) : nil)
+        // While a comment or the issue is edited, ⌘↩ saves that instead.
+        .keyboardShortcut(model.editingComment == nil && model.editingIssue == nil ? KeyboardShortcut(.return, modifiers: .command) : nil)
         .disabled(!model.canChangeIssues || !model.hasDraft(for: issue) || busy || uploading)
         .help(help(uploading: uploading))
     }
@@ -218,6 +222,124 @@ private struct CommentButton: View {
     private func help(uploading: Bool) -> String {
         if !model.canChangeIssues { return "Sign in from the repository menu to comment" }
         return uploading ? "Waiting for images to upload" : "Post the comment  ⌘↩"
+    }
+}
+
+// MARK: - Editing an issue
+
+/// The title of an issue being edited, in place of the title. Return goes
+/// on to the description.
+struct IssueTitleField: View {
+    @ObservedObject var model: IssuesModel
+    let compact: Bool
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let title = Binding(get: { model.editingIssue?.title ?? "" }, set: { model.editingIssue?.title = $0 })
+        TextField("Title", text: title, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(1...4)
+            .font(.system(size: compact ? 15 : 18, weight: .semibold))
+            .foregroundColor(Style.text)
+            .focused($focused)
+            .onSubmit { model.focus(.issueBody) }
+            // Esc leaves the field, as it leaves the description; a second
+            // Esc then ends the edit.
+            .onExitCommand { model.focus(nil) }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Style.field))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(focused ? Color.accentColor.opacity(0.55) : Style.fieldRing, lineWidth: focused ? 2 : 0.5)
+            )
+            .onAppear {
+                // Focus has to wait until the field is in the window.
+                if model.focusedField == .issueTitle { DispatchQueue.main.async { focused = true } }
+            }
+            // The field's focus and the model's, kept in step both ways.
+            .onChange(of: focused) { value in
+                if value {
+                    model.focusedField = .issueTitle
+                } else if model.focusedField == .issueTitle {
+                    model.focusedField = nil
+                }
+            }
+            .onChange(of: model.focusedField) { field in
+                if (field == .issueTitle) != focused { focused = field == .issueTitle }
+            }
+    }
+}
+
+/// The description of an issue being edited, in place of the description,
+/// with Cancel (Esc twice) and Save (⌘↩) for both it and the title.
+struct IssueBodyEditor: View {
+    let issue: GitHubIssue
+    @ObservedObject var model: IssuesModel
+    let compact: Bool
+
+    var body: some View {
+        let text = Binding(get: { model.editingIssue?.body ?? "" }, set: { model.editingIssue?.body = $0 })
+        VStack(alignment: .leading, spacing: 8) {
+            ComposerEditor(
+                text: text,
+                placeholder: "Describe the issue. Mention glyphs as /a or /adieresis; paste or drop images.",
+                minHeight: compact ? 120 : 150,
+                maxHeight: compact ? 320 : 420,
+                isFocused: model.focusBinding(for: .issueBody),
+                suggest: { model.suggestions(for: $0, issue: issue.number) }
+            ) {
+                model.attach($0, to: .issueEdit(issue.number))
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    GlyphInsertButton(model: model, text: text, focusable: false)
+                    Spacer(minLength: 4)
+                    buttons
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    GlyphInsertButton(model: model, text: text, focusable: false)
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        buttons
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: compact ? .infinity : 640, alignment: .leading)
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 8) {
+            Button("Cancel", action: model.cancelEditingIssue)
+                .buttonStyle(SecondaryButtonStyle())
+                .fixedSize()
+            Button(action: model.saveIssueEdit) {
+                HStack(spacing: 6) {
+                    if model.isSavingIssue {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.6)
+                            .frame(width: 12, height: 12)
+                            .colorInvert()
+                    }
+                    Text("Save")
+                }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .fixedSize()
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(!model.canSaveIssueEdit)
+            .help(saveHelp)
+        }
+    }
+
+    private var saveHelp: String {
+        if model.isUploadingImages(into: .issueEdit(issue.number)) { return "Waiting for images to upload" }
+        if model.editingIssue?.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            return "An issue needs a title"
+        }
+        return "Save the title and description on GitHub  ⌘↩"
     }
 }
 
@@ -267,7 +389,8 @@ struct NewIssueView: View {
                             placeholder: "Describe the issue. Mention glyphs as /a or /adieresis; paste or drop images.",
                             minHeight: compact ? 150 : 180,
                             maxHeight: compact ? 320 : 420,
-                            isFocused: model.focusBinding(for: .newIssueBody)
+                            isFocused: model.focusBinding(for: .newIssueBody),
+                            suggest: { model.suggestions(for: $0, issue: nil) }
                         ) {
                             model.attach($0, to: .newIssue)
                         }

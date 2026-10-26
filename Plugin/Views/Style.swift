@@ -106,6 +106,16 @@ extension NSColor {
 }
 
 extension GitHubLabel {
+    /// A dot in the label colour, for menus of labels.
+    var menuImage: NSImage {
+        let fill = NSColor(hexString: color) ?? NSColor(hex: 0x8C8C91)
+        return NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            fill.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5)).fill()
+            return true
+        }
+    }
+
     /// A pale tint of the label colour, as in the mockups.
     var pillFill: Color {
         Color(nsColor: NSColor(name: nil) { appearance in

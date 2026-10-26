@@ -11,6 +11,8 @@ public enum GitHubError: Error, Equatable, LocalizedError {
     case http(status: Int, message: String?)
     case transport(String)
     case decoding(String)
+    /// A GraphQL request GitHub answered with errors instead of data.
+    case graphQL(String)
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +34,8 @@ public enum GitHubError: Error, Equatable, LocalizedError {
             return message
         case .decoding(let message):
             return "Couldn’t read GitHub’s response (\(message))."
+        case .graphQL(let message):
+            return "GitHub refused: \(message)"
         }
     }
 }
@@ -84,6 +88,26 @@ public final class GitHubClient {
         ])
         let issues: [GitHubIssue] = try await paginated(first, maxPages: maxPages)
         return issues.filter { !$0.isPullRequest }
+    }
+
+    /// The repository's labels, by name.
+    public func labels(for repo: GitHubRepo, maxPages: Int = 5) async throws -> [GitHubLabel] {
+        let first = endpoint(repo, "labels", query: ["per_page": "100"])
+        return try await paginated(first, maxPages: maxPages)
+    }
+
+    /// The people issues in the repository can be assigned to.
+    public func assignableUsers(for repo: GitHubRepo, maxPages: Int = 5) async throws -> [GitHubUser] {
+        let first = endpoint(repo, "assignees", query: ["per_page": "100"])
+        return try await paginated(first, maxPages: maxPages)
+    }
+
+    /// The repository's milestones, open and closed, soonest due first.
+    public func milestones(for repo: GitHubRepo, maxPages: Int = 3) async throws -> [GitHubMilestone] {
+        let first = endpoint(repo, "milestones", query: [
+            "state": "all", "per_page": "100", "sort": "due_on", "direction": "asc",
+        ])
+        return try await paginated(first, maxPages: maxPages)
     }
 
     public func comments(for repo: GitHubRepo, issue number: Int, maxPages: Int = 5) async throws -> [GitHubComment] {
@@ -155,6 +179,55 @@ public final class GitHubClient {
         return try decode(GitHubIssue.self, from: data)
     }
 
+    /// Changes an issue's title, its description, or both; nil leaves one as
+    /// it is. GitHub lets the issue's author and people with write access to
+    /// the repository do this.
+    public func editIssue(_ number: Int, title: String? = nil, body: String? = nil, in repo: GitHubRepo) async throws -> GitHubIssue {
+        var fields: [String: Any] = [:]
+        if let title { fields["title"] = title }
+        if let body { fields["body"] = body }
+        return try await updateIssue(number, in: repo, fields: fields)
+    }
+
+    /// Replaces an issue's labels with `labels` (names) and returns them.
+    /// Needs triage or write access to the repository. (Updating the issue
+    /// itself would drop label changes without write access, silently.)
+    @discardableResult
+    public func setLabels(_ labels: [String], onIssue number: Int, in repo: GitHubRepo) async throws -> [GitHubLabel] {
+        let data = try await send("PUT", to: endpoint(repo, "issues/\(number)/labels"), json: ["labels": labels])
+        return try decode([GitHubLabel].self, from: data)
+    }
+
+    /// Assigns people (logins) to an issue, next to those already assigned.
+    /// Needs triage or write access; people who can't be assigned are left
+    /// out by GitHub.
+    public func addAssignees(_ logins: [String], toIssue number: Int, in repo: GitHubRepo) async throws -> GitHubIssue {
+        let data = try await send("POST", to: endpoint(repo, "issues/\(number)/assignees"), json: ["assignees": logins])
+        return try decode(GitHubIssue.self, from: data)
+    }
+
+    /// Unassigns people (logins) from an issue.
+    public func removeAssignees(_ logins: [String], fromIssue number: Int, in repo: GitHubRepo) async throws -> GitHubIssue {
+        let data = try await send("DELETE", to: endpoint(repo, "issues/\(number)/assignees"), json: ["assignees": logins])
+        return try decode(GitHubIssue.self, from: data)
+    }
+
+    /// Puts an issue in a milestone (by its number), or none. Needs write
+    /// access; GitHub silently drops the change otherwise.
+    public func setMilestone(_ milestone: Int?, onIssue number: Int, in repo: GitHubRepo) async throws -> GitHubIssue {
+        try await updateIssue(number, in: repo, fields: ["milestone": milestone.map { $0 as Any } ?? NSNull()])
+    }
+
+    /// Deletes an issue, for good, by its GraphQL id (`nodeID`). The REST API
+    /// can't; GitHub allows it to repository admins, and in an organization
+    /// only where its owners have turned it on.
+    public func deleteIssue(nodeID: String) async throws {
+        _ = try await graphQL(
+            "mutation($id: ID!) { deleteIssue(input: {issueId: $id}) { clientMutationId } }",
+            variables: ["id": nodeID]
+        )
+    }
+
     /// Uploads an image as GitHub's web editor does when one is pasted, and
     /// returns its `github.com/user-attachments/assets/…` URL for the markdown.
     /// It is visible to whoever can see the repository. Needs write access to
@@ -221,7 +294,7 @@ public final class GitHubClient {
         return components.url!
     }
 
-    private func updateIssue(_ number: Int, in repo: GitHubRepo, fields: [String: String]) async throws -> GitHubIssue {
+    private func updateIssue(_ number: Int, in repo: GitHubRepo, fields: [String: Any]) async throws -> GitHubIssue {
         let data = try await send("PATCH", to: endpoint(repo, "issues/\(number)"), json: fields)
         return try decode(GitHubIssue.self, from: data)
     }
@@ -238,6 +311,28 @@ public final class GitHubClient {
         let (data, _) = try await perform(request)
         clearCache()
         return data
+    }
+
+    /// Sends a GraphQL query or mutation and returns its `data`. GitHub
+    /// answers errors with status 200 and an `errors` list, mapped here to
+    /// `GitHubError`.
+    private func graphQL(_ query: String, variables: [String: Any]) async throws -> [String: Any] {
+        var request = makeRequest(apiBase.appendingPathComponent("graphql"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables], options: [.sortedKeys])
+        let (data, _) = try await perform(request)
+        clearCache()
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if let error = (object["errors"] as? [[String: Any]])?.first {
+            let message = error["message"] as? String ?? "unknown error"
+            switch error["type"] as? String {
+            case "NOT_FOUND": throw GitHubError.notFound
+            case "FORBIDDEN": throw GitHubError.forbidden(message)
+            default: throw GitHubError.graphQL(message)
+            }
+        }
+        return object["data"] as? [String: Any] ?? [:]
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {

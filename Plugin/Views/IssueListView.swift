@@ -41,7 +41,7 @@ struct CompactHeader: View {
                 isFocused: model.focusedField == .glyphFilter
             )
             Spacer(minLength: 0)
-            LabelFilterButton(model: model)
+            FilterButton(model: model)
         }
     }
 }
@@ -74,7 +74,7 @@ struct WideTitleBar: View {
                 isOn: $model.currentGlyphOnly, glyph: model.currentGlyph, showsTitle: width >= 800 + glyphNameWidth,
                 isFocused: model.focusedField == .glyphFilter
             )
-            LabelFilterButton(model: model)
+            FilterButton(model: model)
             // The search field gives up width before the repository name does.
             SearchField(text: $model.searchText, placeholder: "Search", isFocused: model.focusBinding(for: .search))
                 .help("Search issues  ⌘F")
@@ -179,36 +179,125 @@ struct BranchLabel: View {
     }
 }
 
-struct LabelFilterButton: View {
+/// Sorting and filtering the list: the order, assignee and milestone in
+/// submenus, then the labels, one click away.
+struct FilterButton: View {
     @ObservedObject var model: IssuesModel
 
     var body: some View {
+        let active = model.hasFilters
         PopUpMenuButton(
             items: menuItems,
-            isRequested: model.menuRequest == .labels,
-            takeRequest: { model.takeMenuRequest(.labels) }
+            isRequested: model.menuRequest == .filters,
+            takeRequest: { model.takeMenuRequest(.filters) }
         ) {
-            Image(systemName: model.selectedLabels.isEmpty ? "tag" : "tag.fill")
-                .font(.system(size: 13))
-                .foregroundColor(model.selectedLabels.isEmpty ? Style.icon : .accentColor)
+            Image(systemName: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                .font(.system(size: 13.5))
+                .foregroundColor(active ? .accentColor : Style.icon)
                 .frame(width: 28, height: 26)
-                .keyboardFocusRing(model.focusedField == .labels)
+                .keyboardFocusRing(model.focusedField == .filters)
         }
-        .help(model.selectedLabels.isEmpty ? "Filter by label" : "Filtered by \(model.selectedLabels.sorted().joined(separator: ", "))")
-        .accessibilityLabel("Filter by label")
+        .help(help)
+        .accessibilityLabel("Sort and filter")
+    }
+
+    private var help: String {
+        var filters: [String] = []
+        if !model.selectedLabels.isEmpty {
+            filters.append("labelled " + model.selectedLabels.sorted().joined(separator: " or "))
+        }
+        switch model.assigneeFilter {
+        case .anyone: break
+        case .me: filters.append("assigned to you")
+        case .nobody: filters.append("assigned to nobody")
+        case .user(let login): filters.append("assigned to \(login)")
+        }
+        switch model.milestoneFilter {
+        case .any: break
+        case .none: filters.append("without a milestone")
+        case .milestone: filters.append("in \(milestoneTitle)")
+        }
+        let sorted = "sorted by \(model.sortOrder.title.lowercased())"
+        return filters.isEmpty ? "Sort and filter; " + sorted : "Issues " + filters.joined(separator: ", ") + "; " + sorted
+    }
+
+    private var assigneeTitle: String {
+        switch model.assigneeFilter {
+        case .anyone: return "Anyone"
+        case .me: return "Me"
+        case .nobody: return "Nobody"
+        case .user(let login): return login
+        }
+    }
+
+    private var milestoneTitle: String {
+        switch model.milestoneFilter {
+        case .any: return "Any"
+        case .none: return "None"
+        case .milestone(let number): return model.allMilestones.first { $0.number == number }?.title ?? "#\(number)"
+        }
     }
 
     private func menuItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = [
+            .submenu("Sort: " + model.sortOrder.title, IssuesModel.SortOrder.allCases.map { order in
+                ActionMenuItem(order.title, state: model.sortOrder == order ? .on : .off) { model.sortOrder = order }
+            }),
+            .submenu("Assignee: " + assigneeTitle, assigneeItems()),
+            .submenu("Milestone: " + milestoneTitle, milestoneItems()),
+            .separator(),
+        ]
         let labels = model.allLabels
-        guard !labels.isEmpty else { return [ActionMenuItem("No labels", enabled: false) {}] }
-        var items: [NSMenuItem] = labels.map { label in
-            ActionMenuItem(label.name, state: model.selectedLabels.contains(label.name) ? .on : .off) {
-                model.toggleLabel(label.name)
+        if labels.isEmpty {
+            items.append(ActionMenuItem("No labels", enabled: false) {})
+        } else {
+            items.append(ActionMenuItem("Labels", enabled: false) {})
+            items += labels.map { label in
+                let item = ActionMenuItem(label.name, state: model.selectedLabels.contains(label.name) ? .on : .off) {
+                    model.toggleLabel(label.name)
+                }
+                item.image = label.menuImage
+                return item
             }
         }
-        if !model.selectedLabels.isEmpty {
+        if model.hasFilters {
             items.append(.separator())
-            items.append(ActionMenuItem("Show All Labels") { model.selectedLabels = [] })
+            items.append(ActionMenuItem("Clear Filters") { model.clearFilters() })
+        }
+        return items
+    }
+
+    private func assigneeItems() -> [NSMenuItem] {
+        func item(_ title: String, _ filter: IssuesModel.AssigneeFilter) -> NSMenuItem {
+            ActionMenuItem(title, state: model.assigneeFilter == filter ? .on : .off) { model.assigneeFilter = filter }
+        }
+        var items = [item("Anyone", .anyone)]
+        if model.viewerLogin != nil { items.append(item("Assigned to Me", .me)) }
+        items.append(item("Assigned to Nobody", .nobody))
+        let users = model.allAssignees
+        if !users.isEmpty {
+            items.append(.separator())
+            items += users.map { item($0.login, .user($0.login)) }
+        }
+        return items
+    }
+
+    private func milestoneItems() -> [NSMenuItem] {
+        func item(_ title: String, _ filter: IssuesModel.MilestoneFilter) -> NSMenuItem {
+            ActionMenuItem(title, state: model.milestoneFilter == filter ? .on : .off) { model.milestoneFilter = filter }
+        }
+        var items = [item("Any Milestone", .any), item("No Milestone", .none)]
+        let milestones = model.allMilestones
+        let open = milestones.filter(\.isOpen)
+        let closed = milestones.filter { !$0.isOpen }
+        if !open.isEmpty {
+            items.append(.separator())
+            items += open.map { item($0.title, .milestone($0.number)) }
+        }
+        if !closed.isEmpty {
+            items.append(.separator())
+            items.append(ActionMenuItem("Closed", enabled: false) {})
+            items += closed.map { item($0.title, .milestone($0.number)) }
         }
         return items
     }
@@ -308,11 +397,11 @@ struct IssueListView: View {
                 Button("Show All Issues") { model.currentGlyphOnly = false }
                     .buttonStyle(SecondaryButtonStyle())
             }
-        } else if !model.searchText.isEmpty || !model.selectedLabels.isEmpty {
-            EmptyStateView(symbol: "magnifyingglass", title: "No matching issues", message: "Try another search or label.") {
+        } else if !model.searchText.isEmpty || model.hasFilters {
+            EmptyStateView(symbol: "magnifyingglass", title: "No matching issues", message: "Try another search or filter.") {
                 Button("Clear Filters") {
                     model.searchText = ""
-                    model.selectedLabels = []
+                    model.clearFilters()
                 }
                 .buttonStyle(SecondaryButtonStyle())
             }
@@ -369,13 +458,18 @@ struct IssueRow: View {
                         }
                     }
                 }
-                Text(meta)
+                metaText
                     .font(.system(size: 11))
                     .foregroundColor(Style.secondaryText)
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
             HStack(spacing: 4) {
+                if !issue.assignees.isEmpty {
+                    AvatarStack(users: issue.assignees, size: 16)
+                        .help("Assigned to " + issue.assignees.map(\.login).joined(separator: ", "))
+                        .padding(.trailing, 2)
+                }
                 if model.hasNewActivity(issue) {
                     Circle()
                         .fill(Color.accentColor)
@@ -395,6 +489,7 @@ struct IssueRow: View {
         }
         .padding(.horizontal, style == .sidebar ? 10 : 12)
         .padding(.vertical, style == .sidebar ? 9 : 10)
+        .opacity(model.deletingIssues.contains(issue.number) ? 0.5 : 1)
         .background(background(selected: selected, highlighted: highlighted, listFocused: listFocused))
         .overlay(alignment: .bottom) {
             if style == .ruled { Rule(color: Style.rowRule) }
@@ -426,6 +521,52 @@ struct IssueRow: View {
                 Button("Reopen Issue") { model.reopen(issue) }
                     .disabled(!model.canChangeIssues)
             }
+            if model.canEdit(issue) {
+                Button("Edit Title and Description") { model.startEditing(issue) }
+            }
+            if model.canEditLabels, !model.allLabels.isEmpty {
+                Menu("Labels") {
+                    ForEach(model.allLabels) { label in
+                        Toggle(label.name, isOn: Binding(
+                            get: { issue.labels.contains { $0.name == label.name } },
+                            set: { _ in model.toggleLabel(label.name, on: issue) }
+                        ))
+                    }
+                }
+                .disabled(model.changingIssues[issue.number] != nil)
+            }
+            if model.canEditAssignees, !model.allAssignees.isEmpty {
+                Menu("Assignees") {
+                    ForEach(model.allAssignees) { user in
+                        Toggle(user.login, isOn: Binding(
+                            get: { model.isAssigned(user.login, to: issue) },
+                            set: { _ in model.toggleAssignee(user.login, on: issue) }
+                        ))
+                    }
+                }
+                .disabled(model.changingIssues[issue.number] != nil)
+            }
+            if model.canSetMilestone, !model.allMilestones.isEmpty {
+                Menu("Milestone") {
+                    Toggle("No Milestone", isOn: Binding(
+                        get: { issue.milestone == nil },
+                        set: { if $0 { model.setMilestone(nil, on: issue) } }
+                    ))
+                    Divider()
+                    ForEach(model.allMilestones.filter(\.isOpen)) { milestone in
+                        Toggle(milestone.title, isOn: Binding(
+                            get: { issue.milestone?.number == milestone.number },
+                            set: { if $0 { model.setMilestone(milestone, on: issue) } }
+                        ))
+                    }
+                }
+                .disabled(model.changingIssues[issue.number] != nil)
+            }
+            if model.canDeleteIssues {
+                Divider()
+                Button("Delete Issue…") { model.delete(issue) }
+                    .disabled(model.deletingIssues.contains(issue.number))
+            }
         }
     }
 
@@ -452,6 +593,12 @@ struct IssueRow: View {
                 )
                 .shadow(color: .black.opacity(selected ? 0.06 : 0), radius: 1.5, y: 1)
         }
+    }
+
+    /// The meta line, with the milestone after a flag.
+    private var metaText: Text {
+        guard let milestone = issue.milestone else { return Text(meta) }
+        return Text(meta + " · ") + Text(Image(systemName: "flag")) + Text(" " + milestone.title)
     }
 
     private var meta: String {

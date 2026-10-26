@@ -162,6 +162,23 @@ struct Avatar: View {
     }
 }
 
+/// Overlapping avatars, as GitHub shows an issue's assignees.
+struct AvatarStack: View {
+    let users: [GitHubUser]
+    var size: CGFloat = 16
+    var limit = 3
+
+    var body: some View {
+        HStack(spacing: -size * 0.3) {
+            ForEach(users.prefix(limit)) { user in
+                Avatar(user: user, size: size)
+                    .overlay(Circle().strokeBorder(Style.content, lineWidth: 1))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 struct SectionTitle: View {
     let text: String
 

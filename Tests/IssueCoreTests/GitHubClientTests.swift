@@ -191,10 +191,181 @@ final class GitHubClientTests: XCTestCase {
         let repository = try await client(token: "secret").repository(repo)
         XCTAssertEqual(repository.id, 81234)
         XCTAssertTrue(repository.canWrite)
+        XCTAssertTrue(repository.canTriage)
+        XCTAssertFalse(repository.canAdminister)
+
+        StubProtocol.handler = { _ in
+            (200, [:], Data(#"{"id": 81234, "permissions": {"admin": false, "maintain": false, "push": false, "triage": true, "pull": true}}"#.utf8))
+        }
+        let triager = try await client(token: "secret").repository(repo)
+        XCTAssertFalse(triager.canWrite)
+        XCTAssertTrue(triager.canTriage)
 
         StubProtocol.handler = { _ in (200, [:], Data(#"{"id": 81234}"#.utf8)) }
         let anonymous = try await client(token: nil).repository(repo)
         XCTAssertFalse(anonymous.canWrite)
+        XCTAssertFalse(anonymous.canTriage)
+        XCTAssertFalse(anonymous.canAdminister)
+    }
+
+    func testEditIssueSendsOnlyWhatChanged() async throws {
+        var bodies: [[String: String]] = []
+        var seen: (method: String?, path: String?)?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path)
+            bodies.append(StubProtocol.jsonBody(of: request))
+            return (200, [:], Self.issueJSON(number: 7, state: "open", reason: nil))
+        }
+        let client = client(token: "secret")
+        _ = try await client.editIssue(7, title: "Dieresis clashes with /i", body: "In Bold and Black.", in: repo)
+        _ = try await client.editIssue(7, body: "", in: repo)
+
+        XCTAssertEqual(seen?.method, "PATCH")
+        XCTAssertEqual(seen?.path, "/repos/acme-type/halden-sans/issues/7")
+        XCTAssertEqual(bodies, [["title": "Dieresis clashes with /i", "body": "In Bold and Black."], ["body": ""]])
+    }
+
+    func testSetLabelsReplacesThem() async throws {
+        var seen: (method: String?, path: String?, body: [String: Any])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.jsonObject(of: request))
+            return (200, [:], Data("""
+            [{"id": 1, "name": "diacritics", "color": "d73a4a"}, {"id": 2, "name": "spacing", "color": "0e8a16"}]
+            """.utf8))
+        }
+        let client = client(token: "secret")
+        let labels = try await client.setLabels(["diacritics", "spacing"], onIssue: 7, in: repo)
+        XCTAssertEqual(seen?.method, "PUT")
+        XCTAssertEqual(seen?.path, "/repos/acme-type/halden-sans/issues/7/labels")
+        XCTAssertEqual(seen?.body["labels"] as? [String], ["diacritics", "spacing"])
+        XCTAssertEqual(labels.map(\.name), ["diacritics", "spacing"])
+
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.jsonObject(of: request))
+            return (200, [:], Data("[]".utf8))
+        }
+        try await client.setLabels([], onIssue: 7, in: repo)
+        XCTAssertEqual(seen?.body["labels"] as? [String], [], "an empty list removes them all")
+    }
+
+    func testRepositoryLabels() async throws {
+        var path: String?
+        StubProtocol.handler = { request in
+            path = request.url?.path
+            return (200, [:], Data("""
+            [{"id": 1, "name": "diacritics", "color": "d73a4a", "description": "Marks and accents"},
+             {"id": 2, "name": "spacing", "color": "0e8a16", "description": null}]
+            """.utf8))
+        }
+        let labels = try await client(token: nil).labels(for: repo)
+        XCTAssertEqual(path, "/repos/acme-type/halden-sans/labels")
+        XCTAssertEqual(labels.map(\.name), ["diacritics", "spacing"])
+        XCTAssertEqual(labels.first?.description, "Marks and accents")
+    }
+
+    func testIssueDecodesAssigneesAndMilestone() throws {
+        let data = Data("""
+        {"id": 1, "number": 7, "title": "Dieresis clashes", "state": "open", "labels": [],
+         "assignees": [{"login": "lina-s"}, {"login": "mkoch"}],
+         "milestone": {"id": 31, "number": 2, "title": "v1.2", "state": "open", "due_on": "2026-11-30T08:00:00Z"},
+         "created_at": "2026-10-14T09:12:00Z", "updated_at": "2026-10-17T18:40:11Z",
+         "html_url": "https://github.com/acme-type/halden-sans/issues/7"}
+        """.utf8)
+        let issue = try JSONDecoder.gitHub.decode(GitHubIssue.self, from: data)
+        XCTAssertEqual(issue.assignees.map(\.login), ["lina-s", "mkoch"])
+        XCTAssertEqual(issue.milestone?.number, 2)
+        XCTAssertEqual(issue.milestone?.title, "v1.2")
+        XCTAssertNotNil(issue.milestone?.dueOn)
+
+        let bare = try JSONDecoder.gitHub.decode(GitHubIssue.self, from: Self.issueJSON(number: 7, state: "open", reason: nil))
+        XCTAssertEqual(bare.assignees, [])
+        XCTAssertNil(bare.milestone)
+    }
+
+    func testAssigneesAreAddedAndRemoved() async throws {
+        var seen: [(method: String?, path: String?, body: [String: Any])] = []
+        StubProtocol.handler = { request in
+            seen.append((request.httpMethod, request.url?.path, StubProtocol.jsonObject(of: request)))
+            return (201, [:], Self.issueJSON(number: 7, state: "open", reason: nil))
+        }
+        let client = client(token: "secret")
+        _ = try await client.addAssignees(["lina-s"], toIssue: 7, in: repo)
+        _ = try await client.removeAssignees(["mkoch"], fromIssue: 7, in: repo)
+
+        XCTAssertEqual(seen.map(\.method), ["POST", "DELETE"])
+        XCTAssertEqual(seen.map(\.path), ["/repos/acme-type/halden-sans/issues/7/assignees", "/repos/acme-type/halden-sans/issues/7/assignees"])
+        XCTAssertEqual(seen[0].body["assignees"] as? [String], ["lina-s"])
+        XCTAssertEqual(seen[1].body["assignees"] as? [String], ["mkoch"])
+    }
+
+    func testSetMilestoneSendsNumberOrNull() async throws {
+        var bodies: [Data] = []
+        StubProtocol.handler = { request in
+            bodies.append(StubProtocol.bodyData(of: request))
+            return (200, [:], Self.issueJSON(number: 7, state: "open", reason: nil))
+        }
+        let client = client(token: "secret")
+        _ = try await client.setMilestone(2, onIssue: 7, in: repo)
+        _ = try await client.setMilestone(nil, onIssue: 7, in: repo)
+        XCTAssertEqual(bodies.map { String(decoding: $0, as: UTF8.self) }, [#"{"milestone":2}"#, #"{"milestone":null}"#])
+    }
+
+    func testAssignableUsersAndMilestones() async throws {
+        var queries: [String: String] = [:]
+        StubProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/assignees") {
+                return (200, [:], Data(#"[{"login": "lina-s"}, {"login": "mkoch"}]"#.utf8))
+            }
+            queries[path] = request.url?.query
+            return (200, [:], Data(#"[{"id": 31, "number": 2, "title": "v1.2", "state": "open", "due_on": null}]"#.utf8))
+        }
+        let client = client(token: nil)
+        let users = try await client.assignableUsers(for: repo)
+        let milestones = try await client.milestones(for: repo)
+        XCTAssertEqual(users.map(\.login), ["lina-s", "mkoch"])
+        XCTAssertEqual(milestones.map(\.title), ["v1.2"])
+        XCTAssertEqual(queries["/repos/acme-type/halden-sans/milestones"], "direction=asc&per_page=100&sort=due_on&state=all")
+    }
+
+    func testIssueKeepsItsNodeID() throws {
+        let issue = try JSONDecoder.gitHub.decode(GitHubIssue.self, from: Self.issueJSON(number: 7, state: "open", reason: nil))
+        XCTAssertEqual(issue.nodeID, "I_kwDOAbc7")
+    }
+
+    func testDeleteIssueSendsGraphQLMutation() async throws {
+        var seen: (method: String?, path: String?, body: [String: Any])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, StubProtocol.jsonObject(of: request))
+            return (200, [:], Data(#"{"data": {"deleteIssue": {"clientMutationId": null}}}"#.utf8))
+        }
+        try await client(token: "secret").deleteIssue(nodeID: "I_kwDOAbc7")
+        XCTAssertEqual(seen?.method, "POST")
+        XCTAssertEqual(seen?.path, "/graphql")
+        XCTAssertTrue((seen?.body["query"] as? String)?.contains("deleteIssue") == true)
+        XCTAssertEqual((seen?.body["variables"] as? [String: String])?["id"], "I_kwDOAbc7")
+    }
+
+    func testDeleteIssueErrorsAreThrown() async {
+        StubProtocol.handler = { _ in
+            (200, [:], Data(#"{"data": {"deleteIssue": null}, "errors": [{"type": "FORBIDDEN", "message": "lina-s does not have the correct permissions to execute `DeleteIssue`"}]}"#.utf8))
+        }
+        do {
+            try await client(token: "secret").deleteIssue(nodeID: "I_kwDOAbc7")
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? GitHubError, .forbidden("lina-s does not have the correct permissions to execute `DeleteIssue`"))
+        }
+
+        StubProtocol.handler = { _ in
+            (200, [:], Data(#"{"data": null, "errors": [{"message": "Something went wrong"}]}"#.utf8))
+        }
+        do {
+            try await client(token: "secret").deleteIssue(nodeID: "I_kwDOAbc7")
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? GitHubError, .graphQL("Something went wrong"))
+        }
     }
 
     // MARK: - Helpers
@@ -208,7 +379,7 @@ final class GitHubClientTests: XCTestCase {
     private static func issueJSON(number: Int, state: String, reason: String?) -> Data {
         let reasonJSON = reason.map { "\"\($0)\"" } ?? "null"
         return Data("""
-        {"id": 1, "number": \(number), "title": "Dieresis clashes", "body": null, "state": "\(state)",
+        {"id": 1, "node_id": "I_kwDOAbc7", "number": \(number), "title": "Dieresis clashes", "body": null, "state": "\(state)",
          "state_reason": \(reasonJSON), "user": null, "labels": [], "comments": 0,
          "created_at": "2026-10-14T09:12:00Z", "updated_at": "2026-10-17T18:40:11Z", "closed_at": null,
          "html_url": "https://github.com/acme-type/halden-sans/issues/\(number)"}
