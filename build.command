@@ -18,8 +18,9 @@
 #                   (default: /Applications/Glyphs 3.app or /Applications/Glyphs 4.app)
 #   GLYPHS_PLUGINS  Plugins folder for `install`
 #                   (default: ~/Library/Application Support/Glyphs 3 or 4/Plugins)
-#   BUILD_DIR       where the bundle goes (default: build/ for Glyphs 3, build/Glyphs 4/ for Glyphs 4)
-#   BUNDLE_NAME     bundle name without .glyphsPlugin (default: GitHubIssues)
+#   BUILD_DIR       where the bundle goes (default: build/Glyphs 3/ or build/Glyphs 4/)
+#   BUNDLE_NAME     bundle name without .glyphsPlugin (default: GitHubIssuesG3 or
+#                   GitHubIssuesG4, the names the releases use)
 #   ARCHS           architectures to build (default: "arm64 x86_64")
 #   PLUGIN_VERSION  the bundle's version (default: the newest released
 #                   `## [X.Y.Z]` in CHANGELOG.md)
@@ -45,12 +46,8 @@ if [[ ! -d "$FW/GlyphsCore.framework" ]]; then
     exit 1
 fi
 
-if [[ "$GLYPHS" == 3 ]]; then
-    OUT="${BUILD_DIR:-$DIR/build}"
-else
-    OUT="${BUILD_DIR:-$DIR/build/Glyphs 4}"
-fi
-NAME="${BUNDLE_NAME:-GitHubIssues}"
+OUT="${BUILD_DIR:-$DIR/build/Glyphs $GLYPHS}"
+NAME="${BUNDLE_NAME:-GitHubIssuesG$GLYPHS}"
 BUNDLE="$OUT/$NAME.glyphsPlugin"
 MACOS="$BUNDLE/Contents/MacOS"
 rm -rf "$BUNDLE"
@@ -113,5 +110,11 @@ if [[ "${1:-}" == "install" ]]; then
     rm -rf "$PLUGINS/$NAME.glyphsPlugin"
     cp -R "$BUNDLE" "$PLUGINS/$NAME.glyphsPlugin"
     echo "Installed to: $PLUGINS/$NAME.glyphsPlugin"
+    # Builds before 0.1.0 were called GitHubIssues.glyphsPlugin; with both
+    # in the folder, Glyphs would load the plugin twice.
+    if [[ "$NAME" != GitHubIssues && -e "$PLUGINS/GitHubIssues.glyphsPlugin" ]]; then
+        echo "warning: $PLUGINS also holds GitHubIssues.glyphsPlugin, an older build"
+        echo "         (or an alias to one). Remove it, or Glyphs loads the plugin twice."
+    fi
     echo "Restart Glyphs, then choose Window → GitHub Issues."
 fi

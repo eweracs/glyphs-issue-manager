@@ -5,9 +5,10 @@ import PackageDescription
 // the GitHub API client, glyph-name parsing, markdown blocks) so it can be
 // unit-tested without launching Glyphs.
 //
-// The actual Glyphs plugin bundle (`GitHubIssues.glyphsPlugin`) is built by
-// `build.command`, which compiles these same `IssueCore` sources together with
-// the AppKit/SwiftUI/GlyphsCore-dependent sources in `Plugin/`.
+// The actual Glyphs plugin bundles (`GitHubIssuesG3.glyphsPlugin` and
+// `GitHubIssuesG4.glyphsPlugin`) are built by `build.command`, which compiles
+// these same `IssueCore` sources together with the AppKit/SwiftUI/GlyphsCore-
+// dependent sources in `Plugin/`.
 let package = Package(
     name: "GlyphsIssueManager",
     platforms: [.macOS(.v13)],

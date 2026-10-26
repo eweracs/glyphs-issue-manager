@@ -54,9 +54,9 @@ Requirements: the Glyphs version to build for (for its headers), Xcode or the
 Xcode command-line tools, macOS 13 or later.
 
 ```sh
-./build.command                     # builds build/GitHubIssues.glyphsPlugin for Glyphs 3
+./build.command                     # builds build/Glyphs 3/GitHubIssuesG3.glyphsPlugin
 ./build.command install             # …and copies it into the Glyphs 3 Plugins folder
-GLYPHS=4 ./build.command install    # the same for Glyphs 4 (build/Glyphs 4/)
+GLYPHS=4 ./build.command install    # the same for Glyphs 4: build/Glyphs 4/GitHubIssuesG4.glyphsPlugin
 ```
 
 Restart Glyphs after installing. `GLYPHS_APP`, `GLYPHS_PLUGINS` and `ARCHS`
