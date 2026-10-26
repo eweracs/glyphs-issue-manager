@@ -112,8 +112,9 @@ the end of `plugins = ( … )`, one per Glyphs version:
 	url = "https://github.com/eweracs/glyphs-issue-manager";
 	path = "GitHubIssuesG3.glyphsPlugin";
 	descriptions = {
-		en = "*Window > GitHub Issues* shows the GitHub issues of the current font’s repository in a floating panel. Filter them by the glyph you are editing, open the glyphs they mention, and comment on, close or create issues without leaving Glyphs.";
+		en = "*Window > GitHub Issues* shows the GitHub issues of the current font’s repository in a floating panel. Filter them by the glyph you are editing, open the glyphs they mention, and comment on, close, create and edit issues, and add labels, assignees and milestones.";
 	};
+	screenshot = "https://raw.githubusercontent.com/eweracs/glyphs-issue-manager/master/Images/Screenshot.png";
 	minGlyphsVersion = "3.5";
 	maxVersion = "3799";
 	minSystemVersion = "13.0";
@@ -126,8 +127,9 @@ the end of `plugins = ( … )`, one per Glyphs version:
 	archiveURL = "https://github.com/eweracs/glyphs-issue-manager/releases/latest/download/GitHubIssues.zip";
 	path = "GitHubIssuesG4.glyphsPlugin";
 	descriptions = {
-		en = "*Window > GitHub Issues* shows the GitHub issues of the current font’s repository in a floating panel. Filter them by the glyph you are editing, open the glyphs they mention, and comment on, close or create issues without leaving Glyphs.";
+		en = "*Window > GitHub Issues* shows the GitHub issues of the current font’s repository in a floating panel. Filter them by the glyph you are editing, open the glyphs they mention, and comment on, close, create and edit issues, and add labels, assignees and milestones.";
 	};
+	screenshot = "https://raw.githubusercontent.com/eweracs/glyphs-issue-manager/master/Images/Screenshot.png";
 	minVersion = "4000";
 	minSystemVersion = "13.0";
 },
@@ -143,8 +145,10 @@ Before listing:
   (3.5.1). Lower it only after trying an older version. The Glyphs 4 build
   is compiled against 4.1.1 (build 4108) and should be tried in Glyphs 4
   before listing.
-- Optionally add a `screenshot` URL, or `identifier = "github-issues";` for a
-  short deep link (`glyphsapp3://showplugin/github-issues`).
+- The screenshot is `Images/Screenshot.png` on `master`, with a capital I:
+  the URL is case-sensitive. Moving or renaming it breaks the entries.
+- Optionally add `identifier = "github-issues";` for a short deep link
+  (`glyphsapp3://showplugin/github-issues`).
 
 Once listed, nothing changes per release. Both Plugin Managers pick up the
 latest one: Glyphs 3 through the bundle on `master`, Glyphs 4 through the
