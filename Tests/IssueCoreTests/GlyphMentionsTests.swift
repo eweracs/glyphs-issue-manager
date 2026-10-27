@@ -30,6 +30,43 @@ final class GlyphMentionsTests: XCTestCase {
         XCTAssertEqual(GlyphMentions.names(in: "a lone / slash, /123 and /.notdef"), [])
     }
 
+    func testMasters() {
+        let found = GlyphMentions.mentions(in: "@Bold/a/b.ss01 and @Regular/a, plain /c.")
+        XCTAssertEqual(found.map(\.name), ["a", "b.ss01", "a", "c"])
+        XCTAssertEqual(found.map(\.master?.name), ["Bold", "Bold", "Regular", nil])
+        XCTAssertEqual(GlyphMentions.mentions(in: "(@Bold-Italic/a)").first?.master?.name, "Bold-Italic")
+        XCTAssertEqual(GlyphMentions.mentions(in: "@Médium/a").first?.master?.name, "Médium")
+        XCTAssertEqual(GlyphMentions.names(in: "@Bold/a /b"), ["b"], "names are the plain ones")
+    }
+
+    func testMasterRanges() {
+        let text = "Heavier: @Bold/a/b."
+        let string = text as NSString
+        let found = GlyphMentions.mentions(in: text)
+        XCTAssertEqual(found.map { string.substring(with: $0.range) }, ["/a", "/b"])
+        XCTAssertEqual(found.first?.master.map { string.substring(with: $0.range) }, "@Bold")
+        XCTAssertEqual(GlyphMentions.mentions(in: "é /a").first.map { ("é /a" as NSString).substring(with: $0.range) }, "/a")
+    }
+
+    func testNotMasters() {
+        XCTAssertEqual(GlyphMentions.mentions(in: "mail lina@Bold/a"), [], "an e-mail address")
+        XCTAssertEqual(GlyphMentions.mentions(in: "thanks @lina-s"), [], "a person")
+        XCTAssertEqual(GlyphMentions.mentions(in: "@/a").map(\.master), [], "no master")
+        XCTAssertEqual(GlyphMentions.mentions(in: "@Bold //a"), [], "not joined")
+    }
+
+    func testMasterNames() {
+        XCTAssertTrue(GlyphMentions.master("Bold-Italic", matches: "Bold Italic"))
+        XCTAssertTrue(GlyphMentions.master("bolditalic", matches: "Bold Italic"))
+        XCTAssertTrue(GlyphMentions.master("Me\u{301}dium", matches: "Médium"))
+        XCTAssertFalse(GlyphMentions.master("Bold", matches: "Bold Italic"))
+        XCTAssertFalse(GlyphMentions.master("-", matches: "*"))
+        XCTAssertEqual(GlyphMentions.written(master: "Bold Italic"), "Bold-Italic")
+        XCTAssertEqual(GlyphMentions.written(master: "Regular (Display)"), "Regular-Display")
+        XCTAssertEqual(GlyphMentions.written(master: "Médium"), "Médium")
+        XCTAssertNil(GlyphMentions.written(master: "★"))
+    }
+
     func testTitleCandidates() {
         XCTAssertEqual(GlyphMentions.titleCandidates(in: "k wider"), ["k", "wider"])
         XCTAssertEqual(GlyphMentions.titleCandidates(in: "N contrast"), ["N", "contrast"])
@@ -40,6 +77,7 @@ final class GlyphMentionsTests: XCTestCase {
         XCTAssertEqual(GlyphMentions.titleCandidates(in: "F/A a bit tight?"), ["F", "A", "bit", "tight"])
         XCTAssertEqual(GlyphMentions.titleCandidates(in: "Add a dot to i."), ["Add", "add", "dot", "to", "i"])
         XCTAssertEqual(GlyphMentions.titleCandidates(in: "A bug I found in 2024"), ["bug", "found", "in"])
+        XCTAssertEqual(GlyphMentions.titleCandidates(in: "@Bold/a/b too heavy"), ["too", "heavy"])
     }
 
     func testRelation() {

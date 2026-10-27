@@ -48,6 +48,17 @@ enum GlyphsContext {
         return font.fontMaster(at: index) ?? font.fontMasters.first
     }
 
+    /// The font's masters, in order.
+    static func masters(in font: GSFont) -> [FontMaster] {
+        font.fontMasters.map { FontMaster(id: $0.id, name: $0.name) }
+    }
+
+    /// The master `master` names, or the current one.
+    static func master(_ master: FontMaster?, in document: NSDocument?) -> GSFontMaster? {
+        if let master, let found = font(of: document)?.fontMaster(forId: master.id) { return found }
+        return currentMaster(in: document)
+    }
+
     // MARK: Glyphs
 
     static func glyphExists(_ name: String, in font: GSFont) -> Bool {
@@ -89,27 +100,47 @@ enum GlyphsContext {
 
     // MARK: Actions
 
-    /// Opens the glyphs in a new Edit tab and brings the font window forward.
+    /// Opens the glyphs in a new Edit tab, each in its master or else the
+    /// current one, and brings the font window forward.
     @discardableResult
-    static func openTab(with names: [String]) -> Bool {
+    static func openTab(with glyphs: [MentionedGlyph]) -> Bool {
         let document = currentDocument()
         guard let font = font(of: document), let wc = windowController(of: document) else {
             NSSound.beep()
             return false
         }
+        let current = currentMaster(in: document)?.id
         var seen = Set<String>()
-        let glyphs = names.compactMap { name -> GSGlyph? in
-            guard seen.insert(name).inserted else { return nil }
-            return font.glyph(forName: name)
+        let layers = glyphs.compactMap { glyph -> GSLayer? in
+            let masterID = glyph.master?.id ?? current
+            guard seen.insert((masterID ?? "") + "/" + glyph.name).inserted else { return nil }
+            return layer(of: glyph.name, in: font, masterID: masterID)
         }
-        guard !glyphs.isEmpty else {
+        guard !layers.isEmpty else {
             NSSound.beep()
             return false
         }
-        wc.addTab(with: glyphs)
+        wc.addTab(with: layers)
         wc.window?.makeKeyAndOrderFront(nil)
         return true
     }
+}
+
+/// A master of the font, as `@Bold/a` names it.
+struct FontMaster: Hashable {
+    let id: String
+    let name: String
+
+    /// How it is written after `@` (GlyphMentions.written(master:)).
+    var written: String? { GlyphMentions.written(master: name) }
+}
+
+/// A glyph mentioned in an issue that is in the font: `/a`, or `@Bold/a`
+/// in one of its masters.
+struct MentionedGlyph: Hashable {
+    let name: String
+    /// Nil for a plain `/a`, which shows in the current master.
+    let master: FontMaster?
 }
 
 /// A glyph's outline with the metrics needed to draw it at a consistent scale.

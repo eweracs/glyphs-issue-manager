@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Something to complete a query with (CompletionQuery): a person, an
-/// issue or a glyph.
+/// Something to complete a query with (CompletionQuery): a person, a
+/// master, an issue or a glyph.
 struct Suggestion: Identifiable {
     enum Kind {
         case person(GitHubUser)
+        /// With a glyph drawn in it.
+        case master(FontMaster, GlyphOutline?)
         case issue(GitHubIssue)
         case glyph(String, GlyphOutline?)
     }
@@ -15,16 +17,19 @@ struct Suggestion: Identifiable {
     var id: String {
         switch kind {
         case .person(let user): return "@" + user.login
+        case .master(let master, _): return "master:" + master.id
         case .issue(let issue): return "#\(issue.number)"
         case .glyph(let name, _): return "/" + name
         }
     }
 
     /// What replaces the query. People and issues are followed by a space,
-    /// as on GitHub; glyphs aren't, so another can follow: `/T/o`.
+    /// as on GitHub; glyphs aren't, so another can follow: `/T/o`. A master
+    /// is followed by the slash of its first glyph: `@Bold/`.
     var insertion: String {
         switch kind {
         case .person, .issue: return id + " "
+        case .master(let master, _): return "@" + (master.written ?? "") + "/"
         case .glyph: return id
         }
     }
@@ -87,8 +92,8 @@ final class SuggestionPopup {
     }
 }
 
-/// The rows of the popup: avatar and login, state and issue, or outline and
-/// glyph name. Click one to take it; the text view moves the selection.
+/// The rows of the popup: avatar and login, a glyph in the master and its
+/// name, state and issue, or outline and glyph name. Click one to take it; the text view moves the selection.
 struct SuggestionList: View {
     let suggestions: [Suggestion]
     let selected: Int
@@ -133,6 +138,24 @@ struct SuggestionList: View {
                 Text(user.login)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundColor(Style.text)
+            case .master(let master, let outline):
+                Group {
+                    if outline?.path != nil {
+                        GlyphOutlineView(outline: outline)
+                    } else {
+                        Image(systemName: "square.stack")
+                            .font(.system(size: 13))
+                            .foregroundColor(Style.secondaryText)
+                    }
+                }
+                .frame(width: 22, height: 22)
+                Text(master.name)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundColor(Style.text)
+                Spacer(minLength: 6)
+                Text("Master")
+                    .font(.system(size: 11))
+                    .foregroundColor(Style.secondaryText)
             case .issue(let issue):
                 StateIcon(issue: issue, size: 14)
                 Text(verbatim: "#\(issue.number)")

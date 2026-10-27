@@ -447,8 +447,8 @@ struct IssueRow: View {
                 if !issue.labels.isEmpty || !mentions.isEmpty {
                     FlowLayout(spacing: 4, lineSpacing: 4) {
                         ForEach(issue.labels) { LabelPill(label: $0) }
-                        ForEach(shown, id: \.self) { name in
-                            GlyphChip(name: name, isRelated: related.contains(name)) { model.openGlyphs([name]) }
+                        ForEach(shown, id: \.self) { glyph in
+                            GlyphChip(glyph: glyph, isRelated: related.contains(glyph.name)) { model.openGlyphs([glyph]) }
                         }
                         if mentions.count > shown.count {
                             Text("+\(mentions.count - shown.count)")

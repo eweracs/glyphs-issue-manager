@@ -33,6 +33,20 @@ final class CompletionQueryTests: XCTestCase {
         XCTAssertNil(query("https://github.com/acme"), "a path")
     }
 
+    func testGlyphsInAMaster() {
+        func master(_ text: String) -> String? {
+            CompletionQuery.at((text as NSString).length, in: text)?.master
+        }
+        XCTAssertEqual(query("@Bold/"), "/")
+        XCTAssertEqual(master("@Bold/"), "Bold")
+        XCTAssertEqual(query("See @Bold-Italic/T/o"), "/o")
+        XCTAssertEqual(master("See @Bold-Italic/T/o"), "Bold-Italic")
+        XCTAssertEqual(master("(@Médium/a"), "Médium")
+        XCTAssertNil(master("/T/o"))
+        XCTAssertNil(query("mail lina@Bold/a"), "an e-mail address")
+        XCTAssertEqual(query("@Bol"), "@Bol", "a person or a master")
+    }
+
     func testRangeIsTriggerAndText() {
         let text = "See /T/o and @li"
         let found = CompletionQuery.at((text as NSString).length, in: text)

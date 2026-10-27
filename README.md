@@ -18,11 +18,12 @@ The plugin is automatically updated through the plugin manager. Needs macOS 13 o
   - written in slash notation anywhere (`/adieresis`, `/T/o`, `/a.ss01`), or
   - plain words in the title that are glyph names in the font ("k wider", "N contrast", "Dieresiscomb too small").
   Only names that exist in the font count.
+- **Glyphs in a master.** `@Bold/a/b` means `a` and `b` in the master Bold: they show in that master and open in it. Spaces and other characters in a master's name are written as hyphens (`@Bold-Italic/a` for “Bold Italic”); case doesn't matter. Glyphs after a master the font doesn't have (another font's, say) don't count.
 - **Current glyph filter.** Shows only issues about the glyph you're editing: issues that mention it, one of its variants (`a.ss01` for `a`), or a glyph that uses it as a component (`adieresis` for `a`).
 - **New activity.** A dot marks issues that changed since you last opened them in the panel.
 - **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes to the previous or next issue. ↑ and ↓ go through the list as filtered (see **Keyboard**).
 - **Links as on GitHub.** `#12` and links to the repository's issues open them in the panel; commit SHAs and links to issues and commits are shortened, as on GitHub.
-- **Suggestions while typing.** `@` suggests people, `#` issues and `/` glyph names from the font; ↑ ↓ choose, Return or Tab take one, Esc closes the list.
+- **Suggestions while typing.** `@` suggests the font's masters and people, `#` issues and `/` glyph names from the font (after a master, drawn in it); ↑ ↓ choose, Return or Tab take one, Esc closes the list.
 
 Commenting, closing, editing, creating and adding images need a sign-in (see below).
 
@@ -77,9 +78,9 @@ Sources/IssueCore/   platform-independent, unit-tested with `swift test`
   ImageAttachment.swift an image to upload: type, size limit, markdown, placeholder
   GitHubModels.swift    issue, comment, label, milestone and user models
   References.swift      #12, SHAs, @people and addresses in issue text, linked as GitHub does
-  CompletionQuery.swift the @person, #issue or /glyph being typed, for suggestions
+  CompletionQuery.swift the @person or @master, #issue or /glyph being typed, for suggestions
   Timeline.swift        timeline entries → activity items, merging, collapsing
-  GlyphMentions.swift   glyph names in issue text; relation to the current glyph
+  GlyphMentions.swift   glyph names (and masters) in issue text; relation to the current glyph
   MarkdownBlocks.swift  block-level markdown parsing for issue bodies
 Plugin/              the Glyphs plugin (AppKit, SwiftUI, GlyphsCore)
   GitHubIssuesPlugin.swift    principal class, Window menu item

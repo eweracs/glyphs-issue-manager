@@ -66,6 +66,8 @@ final class IssuesModel: ObservableObject {
     @Published private(set) var selectedGlyphs: [String] = []
     /// Bumped when the master changes, so glyph outlines redraw.
     @Published private(set) var masterID: String?
+    /// The font's masters, which `@Bold/a` names.
+    @Published private(set) var masters: [FontMaster] = []
 
     // MARK: Data
 
@@ -219,7 +221,7 @@ final class IssuesModel: ObservableObject {
     private var reloadTask: Task<Void, Never>?
     private var seen: [String: Date] = [:]
     private var baseline: Date?
-    private var mentionCache: [Int: (updatedAt: Date, names: [String])] = [:]
+    private var mentionCache: [Int: (updatedAt: Date, glyphs: [MentionedGlyph])] = [:]
     private var componentCache: [String: [String]] = [:]
     /// The issue's `updated_at` when its activity was last loaded.
     private var activityLoadedAt: [Int: Date] = [:]
@@ -286,6 +288,11 @@ final class IssuesModel: ObservableObject {
         if master != masterID {
             masterID = master
             componentCache.removeAll()
+        }
+        let fontMasters = font.map(GlyphsContext.masters) ?? []
+        if fontMasters != masters {
+            masters = fontMasters
+            mentionCache.removeAll()
         }
 
         if url != fontURL || (font == nil) != (phase == .noFont) {
@@ -681,7 +688,7 @@ final class IssuesModel: ObservableObject {
     private func matches(_ issue: GitHubIssue, query: String) -> Bool {
         if query.hasPrefix("/") {
             let name = String(query.dropFirst())
-            return mentions(of: issue).contains { $0.lowercased().hasPrefix(name) }
+            return mentions(of: issue).contains { $0.name.lowercased().hasPrefix(name) }
         }
         let number = query.hasPrefix("#") ? String(query.dropFirst()) : query
         if let n = Int(number), issue.number == n { return true }
@@ -1597,28 +1604,44 @@ final class IssuesModel: ObservableObject {
 
     // MARK: - Glyph mentions
 
-    /// Glyph names mentioned in the issue that exist in the font: slash
-    /// notation in the title and body, plus plain title words ("k wider").
-    func mentions(of issue: GitHubIssue) -> [String] {
-        if let cached = mentionCache[issue.number], cached.updatedAt == issue.updatedAt { return cached.names }
-        let candidates = GlyphMentions.names(in: issue.title)
-            + GlyphMentions.titleCandidates(in: issue.title)
-            + GlyphMentions.names(in: issue.body ?? "")
-        var names: [String] = []
+    /// Glyphs mentioned in the issue that exist in the font: slash notation
+    /// in the title and body, in a master if it names one of the font's
+    /// (`@Bold/a`), plus plain title words ("k wider").
+    func mentions(of issue: GitHubIssue) -> [MentionedGlyph] {
+        if let cached = mentionCache[issue.number], cached.updatedAt == issue.updatedAt { return cached.glyphs }
+        let candidates = GlyphMentions.mentions(in: issue.title).map { ($0.name, $0.master?.name) }
+            + GlyphMentions.titleCandidates(in: issue.title).map { ($0, nil) }
+            + GlyphMentions.mentions(in: issue.body ?? "").map { ($0.name, $0.master?.name) }
+        var glyphs: [MentionedGlyph] = []
         if let font = currentFont {
-            var seen = Set<String>()
-            for name in candidates where seen.insert(name).inserted && GlyphsContext.glyphExists(name, in: font) {
-                names.append(name)
+            var seen = Set<MentionedGlyph>()
+            for (name, written) in candidates {
+                var master: FontMaster?
+                if let written {
+                    // Another font's master, or a typo: not about this font.
+                    guard let found = self.master(written: written) else { continue }
+                    master = found
+                }
+                let glyph = MentionedGlyph(name: name, master: master)
+                if seen.insert(glyph).inserted, GlyphsContext.glyphExists(name, in: font) {
+                    glyphs.append(glyph)
+                }
             }
         }
-        mentionCache[issue.number] = (issue.updatedAt, names)
-        return names
+        mentionCache[issue.number] = (issue.updatedAt, glyphs)
+        return glyphs
     }
 
-    /// The mentioned glyphs that concern the current glyph.
+    /// The font's master that `@written` names.
+    func master(written: String) -> FontMaster? {
+        masters.first { GlyphMentions.master(written, matches: $0.name) }
+    }
+
+    /// Names of the mentioned glyphs that concern the current glyph, in
+    /// whichever master.
     func relatedMentions(of issue: GitHubIssue) -> Set<String> {
         guard let base = currentGlyph else { return [] }
-        return Set(mentions(of: issue).filter { name in
+        return Set(mentions(of: issue).map(\.name).filter { name in
             GlyphRelation.name(name, relatesTo: base, components: componentNames)
         })
     }
@@ -1631,23 +1654,25 @@ final class IssuesModel: ObservableObject {
         return names
     }
 
-    func outline(of name: String) -> GlyphOutline? {
+    /// The glyph's outline in `master`, or in the current master.
+    func outline(of name: String, in master: FontMaster? = nil) -> GlyphOutline? {
         let document = GlyphsContext.currentDocument()
         guard let font = GlyphsContext.font(of: document) else { return nil }
-        return GlyphsContext.outline(of: name, in: font, master: GlyphsContext.currentMaster(in: document))
+        return GlyphsContext.outline(of: name, in: font, master: GlyphsContext.master(master, in: document))
     }
 
-    func openGlyphs(_ names: [String]) {
-        GlyphsContext.openTab(with: names)
+    func openGlyphs(_ glyphs: [MentionedGlyph]) {
+        GlyphsContext.openTab(with: glyphs)
     }
 
     // MARK: - Suggestions
 
     /// Suggestions for what is typed in a text about the issue `number`
-    /// (nil: a new issue). People: those in the issue first, then whoever
-    /// can be assigned or has opened issues. Issues: by number or title,
-    /// recently updated first. Glyphs: by name in the font's order; after a
-    /// bare `/`, the selected glyphs.
+    /// (nil: a new issue). After `@`, the font's masters, then people:
+    /// those in the issue first, then whoever can be assigned or has opened
+    /// issues. Issues: by number or title, recently updated first. Glyphs:
+    /// by name in the font's order, drawn in the master they follow
+    /// (`@Bold/a`); after a bare `/`, the selected glyphs.
     func suggestions(for query: CompletionQuery, issue number: Int?) -> [Suggestion] {
         let typed = query.text.lowercased()
         let limit = 8
@@ -1666,7 +1691,8 @@ final class IssuesModel: ObservableObject {
             let containing = typed.isEmpty ? [] : unique.filter {
                 !$0.login.lowercased().hasPrefix(typed) && $0.login.lowercased().contains(typed)
             }
-            return (starting + containing).prefix(limit).map { Suggestion(kind: .person($0)) }
+            let found = (starting + containing).map { Suggestion(kind: .person($0)) }
+            return Array((masterSuggestions(for: query.text) + found).prefix(limit))
 
         case .issue:
             let others = issues.filter { $0.number != number }
@@ -1705,8 +1731,23 @@ final class IssuesModel: ObservableObject {
                 }
                 names = exact + starting + folded
             }
-            return names.prefix(limit).map { Suggestion(kind: .glyph($0, outline(of: $0))) }
+            let master = query.master.flatMap { self.master(written: $0) }
+            return names.prefix(limit).map { Suggestion(kind: .glyph($0, outline(of: $0, in: master))) }
         }
+    }
+
+    /// The masters that `typed` (after `@`) starts, then those it is part
+    /// of, each with the current glyph (or `n`) drawn in it.
+    private func masterSuggestions(for typed: String) -> [Suggestion] {
+        let key = GlyphMentions.masterKey(typed)
+        let writable = masters.filter { $0.written != nil }
+        let starting = writable.filter { GlyphMentions.masterKey($0.name).hasPrefix(key) }
+        let containing = key.isEmpty ? [] : writable.filter {
+            let name = GlyphMentions.masterKey($0.name)
+            return !name.hasPrefix(key) && name.contains(key)
+        }
+        let sample = currentGlyph ?? "n"
+        return (starting + containing).map { Suggestion(kind: .master($0, outline(of: sample, in: $0))) }
     }
 
     // MARK: - New activity

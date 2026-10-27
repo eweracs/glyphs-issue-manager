@@ -134,6 +134,7 @@ private struct ActivityCommentRow: View {
                         markdown: comment.body,
                         html: comment.bodyHTML,
                         glyphNames: glyphNames,
+                        masters: model.masters,
                         fontSize: compact ? 12.5 : 13,
                         repo: model.repo,
                         openGlyph: { model.openGlyphs([$0]) },
@@ -220,7 +221,7 @@ private struct ActivityCommentRow: View {
     }
 
     private var glyphNames: Set<String> {
-        let candidates = GlyphMentions.names(in: comment.body ?? "")
+        let candidates = GlyphMentions.mentions(in: comment.body ?? "").map(\.name)
         guard let font = GlyphsContext.font(of: GlyphsContext.currentDocument()) else { return [] }
         return Set(candidates.filter { GlyphsContext.glyphExists($0, in: font) })
     }

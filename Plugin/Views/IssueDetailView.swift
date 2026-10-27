@@ -24,7 +24,8 @@ struct IssueDetailView: View {
                         MarkdownView(
                             markdown: issue.body,
                             html: issue.bodyHTML,
-                            glyphNames: Set(model.mentions(of: issue)),
+                            glyphNames: Set(model.mentions(of: issue).map(\.name)),
+                            masters: model.masters,
                             imageMaxWidth: compact ? nil : 460,
                             repo: model.repo,
                             openGlyph: { model.openGlyphs([$0]) },
@@ -185,15 +186,28 @@ struct IssueDetailView: View {
                     }
                     .buttonStyle(AccentLinkButtonStyle(size: compact ? 11.5 : 12))
                 }
-                FlowLayout(spacing: compact ? 8 : 10, lineSpacing: compact ? 8 : 10) {
-                    ForEach(mentions, id: \.self) { name in
-                        GlyphCell(
-                            name: name,
-                            outline: model.outline(of: name),
-                            relatedTo: related.contains(name) ? model.currentGlyph : nil,
-                            large: !compact
-                        ) {
-                            model.openGlyphs([name])
+                // Plain mentions first, in the current master; then each
+                // master's glyphs (`@Bold/a`) under its name.
+                ForEach(Self.byMaster(mentions), id: \.master) { group in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let master = group.master {
+                            Text(master.name)
+                                .font(.system(size: compact ? 11 : 11.5, weight: .medium))
+                                .foregroundColor(Style.secondaryText)
+                                .padding(.top, 4)
+                        }
+                        FlowLayout(spacing: compact ? 8 : 10, lineSpacing: compact ? 8 : 10) {
+                            ForEach(group.glyphs, id: \.self) { glyph in
+                                GlyphCell(
+                                    name: glyph.name,
+                                    master: glyph.master?.name,
+                                    outline: model.outline(of: glyph.name, in: glyph.master),
+                                    relatedTo: related.contains(glyph.name) ? model.currentGlyph : nil,
+                                    large: !compact
+                                ) {
+                                    model.openGlyphs([glyph])
+                                }
+                            }
                         }
                     }
                 }
@@ -201,6 +215,24 @@ struct IssueDetailView: View {
             // Redraw outlines when the master changes.
             .id(model.masterID)
         }
+    }
+
+    private struct MasterGroup {
+        let master: FontMaster?
+        var glyphs: [MentionedGlyph]
+    }
+
+    /// The mentions by master, in order of first mention; plain ones first.
+    private static func byMaster(_ mentions: [MentionedGlyph]) -> [MasterGroup] {
+        var groups: [MasterGroup] = []
+        for glyph in mentions {
+            if let index = groups.firstIndex(where: { $0.master == glyph.master }) {
+                groups[index].glyphs.append(glyph)
+            } else {
+                groups.append(MasterGroup(master: glyph.master, glyphs: [glyph]))
+            }
+        }
+        return groups.filter { $0.master == nil } + groups.filter { $0.master != nil }
     }
 
     /// Comments and history, in time order (ActivityView.swift).

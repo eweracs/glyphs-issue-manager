@@ -9,6 +9,12 @@ them, not how.
 
 ## [Unreleased]
 
+### Added
+
+- **Glyphs in a master.** Write `@Bold/a/b` to reference `a` and `b` in the
+  master Bold. `@` suggests the font's masters before collaborators. Write
+  multiple masters and glyphs space-separated: `@Bold/a/b @Regular/a/c`.
+
 ## [0.1.0] — 2026-10-26
 
 Initial release. A floating panel in Glyphs that shows the GitHub issues

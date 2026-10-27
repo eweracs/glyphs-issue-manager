@@ -1,18 +1,21 @@
 import SwiftUI
 
 /// Renders an issue or comment body. `/glyphname` mentions that exist in the
-/// font become links that open the glyph in a new Edit tab; issues, commits,
-/// people and web addresses become links as on GitHub (References).
+/// font become links that open the glyph in a new Edit tab, in the master
+/// named before them (`@Bold/a`); issues, commits, people and web addresses
+/// become links as on GitHub (References).
 struct MarkdownView: View {
     let markdown: String?
     let html: String?
     /// Glyph names to link (already validated against the font).
     let glyphNames: Set<String>
+    /// The font's masters, for glyphs mentioned in one.
+    var masters: [FontMaster] = []
     var fontSize: CGFloat = 13
     var imageMaxWidth: CGFloat?
     /// The repository `#12` and bare SHAs refer to.
     var repo: GitHubRepo?
-    let openGlyph: (String) -> Void
+    let openGlyph: (MentionedGlyph) -> Void
     /// Opens a link in the panel, if it can (one of the repository's
     /// issues); otherwise it opens in the browser.
     var openLink: ((URL) -> Bool)?
@@ -41,8 +44,7 @@ struct MarkdownView: View {
         .textSelection(.enabled)
         .environment(\.openURL, OpenURLAction { url in
             if url.scheme == MarkdownView.glyphScheme {
-                let name = String(url.path.drop { $0 == "/" })
-                if !name.isEmpty { openGlyph(name) }
+                if let glyph = glyph(at: url) { openGlyph(glyph) }
                 return .handled
             }
             if let openLink, openLink(url) { return .handled }
@@ -139,54 +141,67 @@ struct MarkdownView: View {
         let plain = String(attributed.characters)
         // From the end, so the ranges before stay where they are.
         for match in References.find(in: plain, repo: repo, linked: linked).reversed() {
-            guard let range = Range(match.range, in: plain) else { continue }
-            let start = attributed.characters.index(attributed.startIndex, offsetBy: plain.distance(from: plain.startIndex, to: range.lowerBound))
-            let end = attributed.characters.index(start, offsetBy: plain.distance(from: range.lowerBound, to: range.upperBound))
-            let runs = attributed[start..<end].runs
+            guard let range = Self.range(match.range, of: plain, in: attributed) else { continue }
+            let runs = attributed[range].runs
             if runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
             var replacement = AttributedString(match.display, attributes: runs.first?.attributes ?? AttributeContainer())
             replacement.link = match.url
             if match.isCommit {
                 replacement.inlinePresentationIntent = (replacement.inlinePresentationIntent ?? []).union(.code)
             }
-            attributed.replaceSubrange(start..<end, with: replacement)
+            attributed.replaceSubrange(range, with: replacement)
         }
     }
 
-    /// Turns `/name` into a link for every glyph name that exists in the font.
+    /// Turns `/name` into a link for every glyph name that exists in the
+    /// font, in the master before it (`@Bold/a`) if the font has that
+    /// master; with another master, it isn't this font's glyph. `@Bold`
+    /// shows muted: it says which master, and isn't a link itself.
     private func linkGlyphMentions(in attributed: inout AttributedString) {
         guard !glyphNames.isEmpty else { return }
         let plain = String(attributed.characters)
-        let candidates = GlyphMentions.names(in: plain).filter(glyphNames.contains)
-        for name in candidates {
-            var components = URLComponents()
-            components.scheme = MarkdownView.glyphScheme
-            components.path = "/" + name
-            guard let url = components.url else { continue }
-            let token = "/" + name
-            var searchStart = attributed.startIndex
-            while searchStart < attributed.endIndex,
-                  let range = attributed[searchStart...].range(of: token) {
-                // Not inside a link: an address or reference keeps its own.
-                if !continuesName(after: range.upperBound, in: attributed), !attributed[range].runs.contains(where: { $0.link != nil }) {
-                    attributed[range].link = url
-                }
-                searchStart = range.upperBound
+        for mention in GlyphMentions.mentions(in: plain) where glyphNames.contains(mention.name) {
+            var master: FontMaster?
+            if let written = mention.master {
+                guard let found = masters.first(where: { GlyphMentions.master(written.name, matches: $0.name) }) else { continue }
+                master = found
+            }
+            // Not inside a link: an address or reference keeps its own.
+            guard let url = Self.url(for: MentionedGlyph(name: mention.name, master: master)),
+                  let range = Self.range(mention.range, of: plain, in: attributed),
+                  !attributed[range].runs.contains(where: { $0.link != nil }) else { continue }
+            attributed[range].link = url
+            if let written = mention.master, let range = Self.range(written.range, of: plain, in: attributed) {
+                attributed[range].foregroundColor = Style.secondaryText
             }
         }
     }
 
-    /// Whether the text after a `/name` match continues a longer glyph name
-    /// (`/a` inside `/a.ss01`). A trailing full stop ends a sentence, not a name.
-    private func continuesName(after index: AttributedString.Index, in attributed: AttributedString) -> Bool {
-        let characters = attributed.characters
-        guard index < characters.endIndex else { return false }
-        let next = characters[index]
-        guard let scalar = next.unicodeScalars.first, GlyphMentions.isNameCharacter(scalar) else { return false }
-        guard next == "." || next == "-" else { return true }
-        let following = characters.index(after: index)
-        guard following < characters.endIndex, let scalarAfter = characters[following].unicodeScalars.first else { return false }
-        return GlyphMentions.isNameCharacter(scalarAfter)
+    /// `glyphs-issue-glyph:/a`, with `?master=<id>` for a glyph in a master.
+    private static func url(for glyph: MentionedGlyph) -> URL? {
+        var components = URLComponents()
+        components.scheme = glyphScheme
+        components.path = "/" + glyph.name
+        if let master = glyph.master {
+            components.queryItems = [URLQueryItem(name: "master", value: master.id)]
+        }
+        return components.url
+    }
+
+    /// The glyph a link made by `url(for:)` opens.
+    private func glyph(at url: URL) -> MentionedGlyph? {
+        let name = String(url.path.drop { $0 == "/" })
+        guard !name.isEmpty else { return nil }
+        let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "master" }?.value
+        return MentionedGlyph(name: name, master: id.flatMap { id in masters.first { $0.id == id } })
+    }
+
+    /// Where a range of `plain`, the text of `attributed`, is in `attributed`.
+    private static func range(_ range: NSRange, of plain: String, in attributed: AttributedString) -> Range<AttributedString.Index>? {
+        guard let range = Range(range, in: plain) else { return nil }
+        let start = attributed.characters.index(attributed.startIndex, offsetBy: plain.distance(from: plain.startIndex, to: range.lowerBound))
+        let end = attributed.characters.index(start, offsetBy: plain.distance(from: range.lowerBound, to: range.upperBound))
+        return start..<end
     }
 }
 

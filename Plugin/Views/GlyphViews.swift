@@ -29,9 +29,11 @@ struct GlyphOutlineView: View {
 }
 
 /// A glyph cell in the issue detail (72 × 78, or 88 × 96 in the split
-/// layout). Opens the glyph in a new Edit tab.
+/// layout). Opens the glyph in a new Edit tab, in its master if it has one.
 struct GlyphCell: View {
     let name: String
+    /// The master's name, for `@Bold/a`.
+    var master: String?
     let outline: GlyphOutline?
     /// The current glyph's name when this glyph concerns it.
     let relatedTo: String?
@@ -75,7 +77,7 @@ struct GlyphCell: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("Open /\(name) in a new Edit tab")
-        .accessibilityLabel("Open \(name)")
+        .help("Open /\(name)\(master.map { " in \($0)" } ?? "") in a new Edit tab")
+        .accessibilityLabel("Open \(name)\(master.map { " in \($0)" } ?? "")")
     }
 }

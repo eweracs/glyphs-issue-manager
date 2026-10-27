@@ -16,15 +16,16 @@ struct LabelPill: View {
     }
 }
 
-/// `/glyphname` in the list; tinted when it concerns the current glyph.
+/// `/glyphname` in the list, after its master's name for `@Bold/a`; tinted
+/// when it concerns the current glyph.
 struct GlyphChip: View {
-    let name: String
+    let glyph: MentionedGlyph
     let isRelated: Bool
     let open: () -> Void
 
     var body: some View {
         Button(action: open) {
-            Text("/" + name)
+            label
                 .font(Style.mono.weight(isRelated ? .semibold : .regular))
                 .lineLimit(1)
                 .padding(.horizontal, 5)
@@ -34,7 +35,16 @@ struct GlyphChip: View {
                 .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(isRelated ? Style.accentRing : Style.chipRing, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
-        .help("Open /\(name) in a new Edit tab")
+        .help("Open /\(glyph.name)\(glyph.master.map { " in \($0.name)" } ?? "") in a new Edit tab")
+    }
+
+    private var label: Text {
+        let name = Text("/" + glyph.name)
+        guard let master = glyph.master else { return name }
+        return Text(master.name + " ")
+            .font(.system(size: 10.5, weight: isRelated ? .medium : .regular))
+            .foregroundColor(isRelated ? Color.accentColor.opacity(0.75) : Style.secondaryText)
+            + name
     }
 }
 
