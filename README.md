@@ -14,10 +14,7 @@ Issues**.
 The plugin is automatically updated through the plugin manager. Needs macOS 13 or later.
 
 - **Automatic repository detection.** If your Glyphs file is in a git repository, the plugin finds the remote and pulls its issues automatically. You can also define a custom remote.
-- **Knows about glyphs.** Glyph names (with or without a `/`) in an issue are automatically detected. Click a glyph chip to open it in a new Edit tab. Names count when they are:
-  - written in slash notation anywhere (`/adieresis`, `/T/o`, `/a.ss01`), or
-  - plain words in the title that are glyph names in the font ("k wider", "N contrast", "Dieresiscomb too small").
-  Only names that exist in the font count.
+- **Knows about glyphs.** Glyph names written in slash notation in an issue's title or body (`/adieresis`, `/T/o`, `/a.ss01`) are automatically detected. Click a glyph chip to open it in a new Edit tab. Only names that exist in the font count.
 - **Reference a master.** `@Bold/a/b` means `a` and `b` in the master Bold. Spaces and other characters in a master's name are written as hyphens (`@Bold-Italic/a` for “Bold Italic”).
   Case doesn't matter. Glyphs after a master the font doesn't have are disregarded.
 - **Current glyph filter.** Shows only issues about the glyph you're editing: issues that mention it, one of its variants (`a.ss01` for `a`), or a glyph that uses it as a component (`adieresis` for `a`).

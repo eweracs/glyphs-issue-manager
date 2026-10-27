@@ -116,64 +116,6 @@ public enum GlyphMentions {
         return String(String.UnicodeScalarView(scalars.filter(CharacterSet.alphanumerics.contains)))
     }
 
-    /// Title words that may name a glyph without slash notation, as in
-    /// "k wider", "N contrast" or "Dieresiscomb too small". Callers keep only
-    /// the words that are glyph names in the font.
-    ///
-    /// The articles and pronoun "a", "A" and "I" are skipped when they stand
-    /// alone, except for a lowercase "a" as the first word ("a bottom join too
-    /// heavy"); joined to a slash, as in the pair "A/t.sc", they count. A
-    /// capitalised first word is also tried in lowercase. Runs in a master
-    /// (`@Bold/a`) are mentions of their own, not words.
-    public static func titleCandidates(in title: String) -> [String] {
-        var inMaster = IndexSet()
-        for mention in mentions(in: title) {
-            guard let master = mention.master, let run = Range(NSUnionRange(master.range, mention.range)) else { continue }
-            inMaster.insert(integersIn: run)
-        }
-
-        // Words, and whether a slash touches them (pair notation such as "T/o").
-        var words: [(text: String, inPair: Bool)] = []
-        var current = String.UnicodeScalarView()
-        var slashBefore = false
-        var previous: Unicode.Scalar?
-        var offset = 0
-        for original in title.unicodeScalars {
-            let scalar: Unicode.Scalar = inMaster.contains(offset) ? " " : original
-            offset += original.utf16.count
-            if isNameCharacter(scalar) {
-                if current.isEmpty { slashBefore = previous == "/" }
-                current.append(scalar)
-            } else if !current.isEmpty {
-                words.append((String(current), slashBefore || scalar == "/"))
-                current = String.UnicodeScalarView()
-            }
-            previous = scalar
-        }
-        if !current.isEmpty { words.append((String(current), slashBefore)) }
-
-        var result: [String] = []
-        var seen = Set<String>()
-        func add(_ name: String) {
-            if seen.insert(name).inserted { result.append(name) }
-        }
-        for (index, entry) in words.enumerated() {
-            var word = entry.text
-            while word.hasSuffix(".") || word.hasSuffix("-") { word.removeLast() }
-            guard let first = word.unicodeScalars.first, isNameStart(first) else { continue }
-            let isFirstWord = index == 0
-            if !entry.inPair {
-                if word == "A" || word == "I" { continue }
-                if word == "a", !isFirstWord { continue }
-            }
-            add(word)
-            if isFirstWord, word.count > 1, first.properties.isUppercase {
-                add(word.prefix(1).lowercased() + word.dropFirst())
-            }
-        }
-        return result
-    }
-
     private static func blocksMention(before index: Int, in scalars: [Unicode.Scalar]) -> Bool {
         guard index > 0 else { return false }
         let previous = scalars[index - 1]

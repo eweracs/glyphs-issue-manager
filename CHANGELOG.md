@@ -15,6 +15,11 @@ them, not how.
   master Bold. `@` suggests the font's masters before collaborators. Write
   multiple masters and glyphs space-separated: `@Bold/a/b @Regular/a/c`.
 
+### Changed
+
+- **Glyph mentions need a slash.** Only names written as `/a` count as
+  glyph mentions. Too many false positives otherwise.
+
 ## [0.1.0] — 2026-10-26
 
 Initial release. A floating panel in Glyphs that shows the GitHub issues

@@ -1606,11 +1606,10 @@ final class IssuesModel: ObservableObject {
 
     /// Glyphs mentioned in the issue that exist in the font: slash notation
     /// in the title and body, in a master if it names one of the font's
-    /// (`@Bold/a`), plus plain title words ("k wider").
+    /// (`@Bold/a`).
     func mentions(of issue: GitHubIssue) -> [MentionedGlyph] {
         if let cached = mentionCache[issue.number], cached.updatedAt == issue.updatedAt { return cached.glyphs }
         let candidates = GlyphMentions.mentions(in: issue.title).map { ($0.name, $0.master?.name) }
-            + GlyphMentions.titleCandidates(in: issue.title).map { ($0, nil) }
             + GlyphMentions.mentions(in: issue.body ?? "").map { ($0.name, $0.master?.name) }
         var glyphs: [MentionedGlyph] = []
         if let font = currentFont {

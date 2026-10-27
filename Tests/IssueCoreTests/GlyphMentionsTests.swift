@@ -67,19 +67,6 @@ final class GlyphMentionsTests: XCTestCase {
         XCTAssertNil(GlyphMentions.written(master: "★"))
     }
 
-    func testTitleCandidates() {
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "k wider"), ["k", "wider"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "N contrast"), ["N", "contrast"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "a bottom join thiccness"), ["a", "bottom", "join", "thiccness"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "Dieresiscomb too small"), ["Dieresiscomb", "dieresiscomb", "too", "small"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "T/o and T/a kerning"), ["T", "o", "and", "a", "kerning"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "A/t.sc too tight"), ["A", "t.sc", "too", "tight"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "F/A a bit tight?"), ["F", "A", "bit", "tight"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "Add a dot to i."), ["Add", "add", "dot", "to", "i"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "A bug I found in 2024"), ["bug", "found", "in"])
-        XCTAssertEqual(GlyphMentions.titleCandidates(in: "@Bold/a/b too heavy"), ["too", "heavy"])
-    }
-
     func testRelation() {
         let components: [String: [String]] = [
             "adieresis": ["a", "dieresiscomb"],
