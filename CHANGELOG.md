@@ -9,16 +9,21 @@ them, not how.
 
 ## [Unreleased]
 
-### Added
+## [0.1.1] — 2026-10-27
 
-- **Glyphs in a master.** Write `@Bold/a/b` to reference `a` and `b` in the
-  master Bold. `@` suggests the font's masters before collaborators. Write
-  multiple masters and glyphs space-separated: `@Bold/a/b @Regular/a/c`.
+Glyphs can now be referenced in a specific master, and glyph mentions
+only count when written with a slash.
 
 ### Changed
 
 - **Glyph mentions need a slash.** Only names written as `/a` count as
   glyph mentions. Too many false positives otherwise.
+
+### Added
+
+- **Glyphs in a master.** Write `@Bold/a/b` to reference `a` and `b` in the
+  master Bold. `@` suggests the font's masters before collaborators. Write
+  multiple masters and glyphs space-separated: `@Bold/a/b @Regular/a/c`.
 
 ## [0.1.0] — 2026-10-26
 
