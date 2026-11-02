@@ -9,6 +9,8 @@ them, not how.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-11-02
+
 Check/uncheck tasks by clicking their box directly.
 
 ### Added
