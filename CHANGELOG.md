@@ -9,6 +9,15 @@ them, not how.
 
 ## [Unreleased]
 
+### Added
+
+- **Check off tasks.** Click a task list box in an issue or comment to
+  check or uncheck it, as on GitHub. This works wherever you may edit the
+  text. If someone changed the text in the meantime, nothing is
+  overwritten.
+- **Task progress in the list.** Issues with a task list show how many of
+  their tasks are done (for example 2/5).
+
 ## [0.1.1] — 2026-10-27
 
 Glyphs can now be referenced in a specific master, and glyph mentions

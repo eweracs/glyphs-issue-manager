@@ -20,6 +20,7 @@ The plugin is automatically updated through the plugin manager. Needs macOS 13 o
 - **Current glyph filter.** Shows only issues about the glyph you're editing: issues that mention it, one of its variants (`a.ss01` for `a`), or a glyph that uses it as a component (`adieresis` for `a`).
 - **New activity.** A dot marks issues that changed since you last opened them in the panel.
 - **Step through issues.** **‹ #9 ›** above an issue (or ⌥⌘← and ⌥⌘→) goes to the previous or next issue. ↑ and ↓ go through the list as filtered (see **Keyboard**).
+- **Task lists.** Click a box (`- [ ]`) in an issue or comment to check it off, as on GitHub. The list shows how many tasks of an issue are done.
 - **Suggestions while typing.** `@` suggests the font's masters and people, `#` issues and `/` glyph names from the font.
 
 Commenting, closing, editing, creating and adding images need a sign-in (see below).

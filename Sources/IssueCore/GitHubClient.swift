@@ -144,6 +144,12 @@ public final class GitHubClient {
         return try decode(GitHubIssue.self, from: data)
     }
 
+    /// One comment, fresh from GitHub.
+    public func comment(_ id: Int, in repo: GitHubRepo) async throws -> GitHubComment {
+        let (data, _) = try await get(endpoint(repo, "issues/comments/\(id)"))
+        return try decode(GitHubComment.self, from: data)
+    }
+
     /// Adds a comment to an issue. Needs a token that may write issues.
     @discardableResult
     public func addComment(_ body: String, toIssue number: Int, in repo: GitHubRepo) async throws -> GitHubComment {

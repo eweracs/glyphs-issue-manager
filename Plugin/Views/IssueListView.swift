@@ -477,6 +477,13 @@ struct IssueRow: View {
                         .help("New activity since you last opened this issue")
                         .accessibilityLabel("New activity")
                 }
+                if let tasks = model.taskProgress(of: issue) {
+                    Image(systemName: tasks.done == tasks.total ? "checkmark.square" : "square")
+                        .font(.system(size: 10.5))
+                    Text("\(tasks.done)/\(tasks.total)")
+                        .padding(.trailing, issue.comments > 0 ? 3 : 0)
+                        .help("\(tasks.done) of \(tasks.total) tasks done")
+                }
                 if issue.comments > 0 {
                     Image(systemName: "bubble.left")
                         .font(.system(size: 10.5))

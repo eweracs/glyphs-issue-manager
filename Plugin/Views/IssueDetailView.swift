@@ -29,7 +29,11 @@ struct IssueDetailView: View {
                             imageMaxWidth: compact ? nil : 460,
                             repo: model.repo,
                             openGlyph: { model.openGlyphs([$0]) },
-                            openLink: model.openInPanel
+                            openLink: model.openInPanel,
+                            setTask: model.canCheckTasks(of: issue) ? { [body = issue.body ?? ""] ordinal, checked in
+                                model.setTask(ordinal, checked: checked, in: .issue(issue.number), of: body, issue: issue.number)
+                            } : nil,
+                            pendingTasks: model.pendingTasks(in: .issue(issue.number))
                         )
                     }
                     comments

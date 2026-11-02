@@ -138,7 +138,13 @@ private struct ActivityCommentRow: View {
                         fontSize: compact ? 12.5 : 13,
                         repo: model.repo,
                         openGlyph: { model.openGlyphs([$0]) },
-                        openLink: model.openInPanel
+                        openLink: model.openInPanel,
+                        setTask: comment.commentID.flatMap { id in
+                            model.canCheckTasks(of: comment) ? { ordinal, checked in
+                                model.setTask(ordinal, checked: checked, in: .comment(id), of: comment.body ?? "", issue: issue.number)
+                            } : nil
+                        },
+                        pendingTasks: comment.commentID.map { model.pendingTasks(in: .comment($0)) } ?? [:]
                     )
                 }
             }

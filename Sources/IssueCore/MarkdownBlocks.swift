@@ -19,8 +19,63 @@ public enum MarkdownBlock: Hashable {
 public enum MarkdownParser {
 
     public static func blocks(from markdown: String) -> [MarkdownBlock] {
-        let text = stripHTMLComments(markdown.replacingOccurrences(of: "\r\n", with: "\n"))
+        parse(normalized(markdown).text).blocks
+    }
+
+    /// The task list items, in order: what `blocks(from:)` shows as `.task`.
+    public static func tasks(in markdown: String) -> [(checked: Bool, text: String)] {
+        blocks(from: markdown).compactMap {
+            if case .task(let checked, let text, _) = $0 { return (checked, text) }
+            return nil
+        }
+    }
+
+    /// How many of the markdown's tasks are checked, of how many.
+    public static func taskProgress(in markdown: String) -> (done: Int, total: Int) {
+        let tasks = tasks(in: markdown)
+        return (tasks.filter(\.checked).count, tasks.count)
+    }
+
+    /// The markdown with its task number `ordinal` (counted as `tasks(in:)`
+    /// does) checked or unchecked, and everything else, line endings and
+    /// comments included, as it was. Nil if there is no such task.
+    public static func settingTask(_ ordinal: Int, checked: Bool, in markdown: String) -> String? {
+        let (text, offsets) = normalized(markdown)
+        let boxes = parse(text).taskBoxes
+        guard boxes.indices.contains(ordinal) else { return nil }
+        // The character between the brackets, in the original.
+        let location = offsets[boxes[ordinal] + 1]
+        return (markdown as NSString).replacingCharacters(in: NSRange(location: location, length: 1), with: checked ? "x" : " ")
+    }
+
+    /// The markdown with `\r\n` as `\n` and HTML comments taken out, and for
+    /// each of its UTF-16 units where it was in the original.
+    private static func normalized(_ markdown: String) -> (text: String, offsets: [Int]) {
+        let ns = markdown as NSString
+        var removed = IndexSet()
+        for match in commentRegex.matches(in: markdown, range: NSRange(location: 0, length: ns.length)) {
+            removed.insert(integersIn: match.range.location..<(match.range.location + match.range.length))
+        }
+        var units: [unichar] = []
+        var offsets: [Int] = []
+        units.reserveCapacity(ns.length)
+        offsets.reserveCapacity(ns.length)
+        for index in 0..<ns.length where !removed.contains(index) {
+            let unit = ns.character(at: index)
+            if unit == 13, index + 1 < ns.length, ns.character(at: index + 1) == 10 { continue }
+            units.append(unit)
+            offsets.append(index)
+        }
+        return (String(utf16CodeUnits: units, count: units.count), offsets)
+    }
+
+    private static let commentRegex = try! NSRegularExpression(pattern: #"<!--[\s\S]*?-->"#)
+
+    /// The blocks, and where each task's `[` is in `text` (UTF-16 offsets).
+    private static func parse(_ text: String) -> (blocks: [MarkdownBlock], taskBoxes: [Int]) {
         var blocks: [MarkdownBlock] = []
+        var taskBoxes: [Int] = []
+        var lineStart = 0
         var paragraph: [String] = []
         var quote: [String] = []
         var table: [String] = []
@@ -49,6 +104,8 @@ public enum MarkdownParser {
         }
 
         for line in text.components(separatedBy: "\n") {
+            let start = lineStart
+            lineStart += (line as NSString).length + 1
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if var codeLines = code {
@@ -106,6 +163,10 @@ public enum MarkdownParser {
             }
             if let item = listItem(line) {
                 flushParagraph()
+                if case .task = item {
+                    // Only blanks and the marker come before it.
+                    taskBoxes.append(start + (line as NSString).range(of: "[").location)
+                }
                 blocks.append(item)
                 continue
             }
@@ -128,7 +189,7 @@ public enum MarkdownParser {
             blocks.append(.code(code.joined(separator: "\n")))
         }
         flushAll()
-        return blocks
+        return (blocks, taskBoxes)
     }
 
     /// `src` of every `<img>` in rendered HTML, in document order.
@@ -178,10 +239,6 @@ public enum MarkdownParser {
         let ns = tag as NSString
         guard let match = regex.firstMatch(in: tag, range: NSRange(location: 0, length: ns.length)) else { return nil }
         return ns.substring(with: match.range(at: 1))
-    }
-
-    static func stripHTMLComments(_ text: String) -> String {
-        text.replacingOccurrences(of: #"<!--[\s\S]*?-->"#, with: "", options: .regularExpression)
     }
 
     static func stripTags(_ text: String) -> String {

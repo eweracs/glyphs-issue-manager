@@ -75,4 +75,28 @@ final class MarkdownParserTests: XCTestCase {
             "https://camo.githubusercontent.com/b",
         ])
     }
+
+    func testSettingTaskChangesOnlyItsBox() {
+        let markdown = "<!-- - [ ] not a task -->\r\n- [ ] Black 🖤\r\n```\r\n- [ ] code\r\n```\r\n> - [ ] quoted\r\n  * [X] Bold\r\n1. [ ] Light"
+        XCTAssertEqual(MarkdownParser.tasks(in: markdown).map(\.text), ["Black 🖤", "Bold", "Light"])
+        XCTAssertEqual(
+            MarkdownParser.settingTask(0, checked: true, in: markdown),
+            markdown.replacingOccurrences(of: "- [ ] Black", with: "- [x] Black")
+        )
+        XCTAssertEqual(
+            MarkdownParser.settingTask(1, checked: false, in: markdown),
+            markdown.replacingOccurrences(of: "* [X] Bold", with: "* [ ] Bold")
+        )
+        XCTAssertEqual(
+            MarkdownParser.settingTask(2, checked: true, in: markdown),
+            markdown.replacingOccurrences(of: "1. [ ] Light", with: "1. [x] Light")
+        )
+        XCTAssertNil(MarkdownParser.settingTask(3, checked: true, in: markdown))
+    }
+
+    func testTaskProgress() {
+        let progress = MarkdownParser.taskProgress(in: "- [x] Regular\n- [ ] Bold\n- [X] Black\n- plain")
+        XCTAssertEqual(progress.done, 2)
+        XCTAssertEqual(progress.total, 3)
+    }
 }

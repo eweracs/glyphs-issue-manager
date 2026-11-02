@@ -19,6 +19,11 @@ struct MarkdownView: View {
     /// Opens a link in the panel, if it can (one of the repository's
     /// issues); otherwise it opens in the browser.
     var openLink: ((URL) -> Bool)?
+    /// Checks or unchecks a task (by its number in the text), as clicking
+    /// its box does on GitHub. Without it the boxes only show.
+    var setTask: ((Int, Bool) -> Void)?
+    /// Boxes clicked and still being saved, which show as clicked.
+    var pendingTasks: [Int: Bool] = [:]
 
     static let glyphScheme = "glyphs-issue-glyph"
 
@@ -35,7 +40,7 @@ struct MarkdownView: View {
                     .foregroundColor(Style.secondaryText)
             }
             ForEach(numbered, id: \.index) { item in
-                view(for: item.block, imageSource: item.imageOrdinal.flatMap { imageSources.indices.contains($0) ? imageSources[$0] : nil }, linked: linked)
+                view(for: item.block, taskOrdinal: item.taskOrdinal, imageSource: item.imageOrdinal.flatMap { imageSources.indices.contains($0) ? imageSources[$0] : nil }, linked: linked)
             }
         }
         .font(.system(size: fontSize))
@@ -55,22 +60,29 @@ struct MarkdownView: View {
     private struct NumberedBlock {
         let index: Int
         let block: MarkdownBlock
-        let imageOrdinal: Int?
+        var imageOrdinal: Int?
+        var taskOrdinal: Int?
     }
 
     private func number(_ blocks: [MarkdownBlock]) -> [NumberedBlock] {
         var imageCount = 0
+        var taskCount = 0
         return blocks.enumerated().map { index, block in
-            if case .image = block {
+            switch block {
+            case .image:
                 defer { imageCount += 1 }
                 return NumberedBlock(index: index, block: block, imageOrdinal: imageCount)
+            case .task:
+                defer { taskCount += 1 }
+                return NumberedBlock(index: index, block: block, taskOrdinal: taskCount)
+            default:
+                return NumberedBlock(index: index, block: block)
             }
-            return NumberedBlock(index: index, block: block, imageOrdinal: nil)
         }
     }
 
     @ViewBuilder
-    private func view(for block: MarkdownBlock, imageSource: String?, linked: References.Linked?) -> some View {
+    private func view(for block: MarkdownBlock, taskOrdinal: Int?, imageSource: String?, linked: References.Linked?) -> some View {
         let inline = { (text: String) in self.inline(text, linked: linked) }
         switch block {
         case .paragraph(let text):
@@ -89,9 +101,7 @@ struct MarkdownView: View {
             .padding(.leading, CGFloat(indent) * 14)
         case .task(let checked, let text, let indent):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: checked ? "checkmark.square.fill" : "square")
-                    .foregroundColor(checked ? .accentColor : Style.secondaryText)
-                    .accessibilityLabel(checked ? "Done" : "Not done")
+                taskBox(checked: taskOrdinal.flatMap { pendingTasks[$0] } ?? checked, ordinal: taskOrdinal)
                 Text(inline(text)).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.leading, CGFloat(indent) * 14)
@@ -121,6 +131,21 @@ struct MarkdownView: View {
                 .frame(maxWidth: imageMaxWidth ?? .infinity, alignment: .leading)
         case .rule:
             Rule()
+        }
+    }
+
+    @ViewBuilder
+    private func taskBox(checked: Bool, ordinal: Int?) -> some View {
+        let box = Image(systemName: checked ? "checkmark.square.fill" : "square")
+            .foregroundColor(checked ? .accentColor : Style.secondaryText)
+        if let setTask, let ordinal {
+            Button { setTask(ordinal, !checked) } label: { box.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .help(checked ? "Uncheck" : "Check")
+                .accessibilityLabel(checked ? "Done" : "Not done")
+                .accessibilityAddTraits(.isButton)
+        } else {
+            box.accessibilityLabel(checked ? "Done" : "Not done")
         }
     }
 

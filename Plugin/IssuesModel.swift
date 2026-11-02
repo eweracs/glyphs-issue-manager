@@ -107,6 +107,20 @@ final class IssuesModel: ObservableObject {
         case issueEdit(Int)
     }
 
+    /// A text whose task list can be checked off: an issue's description
+    /// (by its number) or a comment (by its GitHub id).
+    enum TaskTarget: Hashable {
+        case issue(Int)
+        case comment(Int)
+    }
+
+    /// A box clicked: checked or not, and the task's text, to make sure it
+    /// is still the same task when it is saved.
+    struct TaskChange: Equatable {
+        let checked: Bool
+        let text: String
+    }
+
     /// The comment being edited in place, with its text so far.
     @Published var editingComment: CommentEdit?
     @Published private(set) var isSavingComment = false
@@ -118,6 +132,10 @@ final class IssuesModel: ObservableObject {
     /// issues being deleted.
     @Published private(set) var changingIssues: [Int: Aspect] = [:]
     @Published private(set) var deletingIssues: Set<Int> = []
+    /// Task list boxes clicked and not yet saved, by text and task number.
+    /// They show as clicked while they are saved.
+    @Published private(set) var taskChanges: [TaskTarget: [Int: TaskChange]] = [:]
+    private var savingTasks: Set<TaskTarget> = []
     /// The signed-in account's login, and what it may do in the repository:
     /// together they say whose issues and comments it may edit and delete,
     /// and whether it may label and delete issues.
@@ -222,6 +240,7 @@ final class IssuesModel: ObservableObject {
     private var seen: [String: Date] = [:]
     private var baseline: Date?
     private var mentionCache: [Int: (updatedAt: Date, glyphs: [MentionedGlyph])] = [:]
+    private var taskProgressCache: [Int: (body: String?, progress: (done: Int, total: Int))] = [:]
     private var componentCache: [String: [String]] = [:]
     /// The issue's `updated_at` when its activity was last loaded.
     private var activityLoadedAt: [Int: Date] = [:]
@@ -354,6 +373,9 @@ final class IssuesModel: ObservableObject {
         editingIssue = nil
         changingIssues = [:]
         deletingIssues = []
+        taskChanges = [:]
+        savingTasks = []
+        taskProgressCache = [:]
         canWriteRepository = false
         canTriageRepository = false
         canAdministerRepository = false
@@ -1420,6 +1442,112 @@ final class IssuesModel: ObservableObject {
                 }
                 self?.deletingComments.remove(id)
             }
+        }
+    }
+
+    // MARK: - Task lists
+
+    /// Whether clicking a task list box in the description checks it off:
+    /// as on GitHub, for whoever may edit the issue.
+    func canCheckTasks(of issue: GitHubIssue) -> Bool {
+        canEdit(issue) && editingIssue?.number != issue.number
+    }
+
+    func canCheckTasks(of comment: ActivityComment) -> Bool {
+        canModify(comment) && (comment.commentID == nil || editingComment?.commentID != comment.commentID)
+    }
+
+    /// How many of the tasks in the description are done, as the issue
+    /// list on GitHub shows it; nil without a task list.
+    func taskProgress(of issue: GitHubIssue) -> (done: Int, total: Int)? {
+        let progress: (done: Int, total: Int)
+        if let cached = taskProgressCache[issue.number], cached.body == issue.body {
+            progress = cached.progress
+        } else {
+            progress = MarkdownParser.taskProgress(in: issue.body ?? "")
+            taskProgressCache[issue.number] = (issue.body, progress)
+        }
+        return progress.total > 0 ? progress : nil
+    }
+
+    /// The boxes clicked in the text that are still being saved.
+    func pendingTasks(in target: TaskTarget) -> [Int: Bool] {
+        taskChanges[target]?.mapValues(\.checked) ?? [:]
+    }
+
+    /// Checks or unchecks task number `ordinal` of the text (`markdown`, as
+    /// shown) and saves it. It shows checked at once; boxes clicked while
+    /// one is saved go to GitHub together after it.
+    func setTask(_ ordinal: Int, checked: Bool, in target: TaskTarget, of markdown: String, issue number: Int) {
+        let tasks = MarkdownParser.tasks(in: markdown)
+        guard tasks.indices.contains(ordinal) else { return }
+        taskChanges[target, default: [:]][ordinal] = TaskChange(checked: checked, text: tasks[ordinal].text)
+        saveTasks(in: target, issue: number)
+    }
+
+    private struct TaskConflict: Error {}
+
+    /// Saves the clicked boxes into the text as it is on GitHub now, so that
+    /// an edit made meanwhile isn't lost. If the tasks there aren't the
+    /// ones clicked any more, nothing is saved and the text is shown anew.
+    private func saveTasks(in target: TaskTarget, issue number: Int) {
+        guard let repo, !savingTasks.contains(target) else { return }
+        savingTasks.insert(target)
+        actionError = nil
+        let client = self.client
+        Task { [weak self] in
+            while let self, repo == self.repo, let changes = self.taskChanges[target], !changes.isEmpty {
+                do {
+                    switch target {
+                    case .issue:
+                        let current = try await client.issue(number, in: repo)
+                        let body = try Self.applying(changes, to: current.body ?? "")
+                        let updated = body == current.body ? current : try await client.editIssue(number, body: body, in: repo)
+                        if repo == self.repo { self.store(updated) }
+                    case .comment(let id):
+                        let current = try await client.comment(id, in: repo)
+                        let body = try Self.applying(changes, to: current.body ?? "")
+                        let updated = body == current.body ? current : try await client.editComment(id, body: body, in: repo)
+                        if repo == self.repo { self.store(updated, on: number) }
+                    }
+                    // Those sent are saved, unless clicked again meanwhile.
+                    for (ordinal, change) in changes where self.taskChanges[target]?[ordinal] == change {
+                        self.taskChanges[target]?[ordinal] = nil
+                    }
+                } catch {
+                    self.taskChanges[target] = nil
+                    guard repo == self.repo else { break }
+                    if error is TaskConflict {
+                        self.report("The text changed on GitHub meanwhile, so the task wasn’t checked off. It shows as it is now; try again.", about: number)
+                        self.refreshIssue(number, in: repo)
+                    } else {
+                        self.report(self.describeChangeError(error, repo: repo), about: number)
+                    }
+                }
+            }
+            // After a switch of repository, the target is another one's.
+            guard let self, repo == self.repo else { return }
+            self.savingTasks.remove(target)
+            if self.taskChanges[target]?.isEmpty == true { self.taskChanges[target] = nil }
+        }
+    }
+
+    private static func applying(_ changes: [Int: TaskChange], to markdown: String) throws -> String {
+        let tasks = MarkdownParser.tasks(in: markdown)
+        var result = markdown
+        for (ordinal, change) in changes {
+            guard tasks.indices.contains(ordinal), tasks[ordinal].text == change.text,
+                  let changed = MarkdownParser.settingTask(ordinal, checked: change.checked, in: result) else { throw TaskConflict() }
+            result = changed
+        }
+        return result
+    }
+
+    /// Puts a comment GitHub sent back in place of the one shown.
+    private func store(_ updated: GitHubComment, on number: Int) {
+        activity[number] = activity[number]?.map { item in
+            guard case .comment(let comment) = item, comment.commentID == updated.id else { return item }
+            return .comment(comment.updated(from: updated))
         }
     }
 

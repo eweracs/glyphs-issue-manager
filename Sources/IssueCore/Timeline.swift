@@ -186,6 +186,14 @@ public struct ActivityComment: Hashable, Identifiable {
     public let body: String?
     public let bodyHTML: String?
     public let htmlURL: URL?
+
+    /// The comment with the text GitHub sent back after a change.
+    public func updated(from comment: GitHubComment) -> ActivityComment {
+        ActivityComment(
+            id: id, commentID: commentID, author: author, createdAt: createdAt,
+            body: comment.body, bodyHTML: comment.bodyHTML, htmlURL: htmlURL
+        )
+    }
 }
 
 public enum ActivityItem: Hashable, Identifiable {
