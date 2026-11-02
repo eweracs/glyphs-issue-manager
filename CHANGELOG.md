@@ -9,14 +9,14 @@ them, not how.
 
 ## [Unreleased]
 
+Check/uncheck tasks by clicking their box directly.
+
 ### Added
 
 - **Check off tasks.** Click a task list box in an issue or comment to
-  check or uncheck it, as on GitHub. This works wherever you may edit the
-  text. If someone changed the text in the meantime, nothing is
-  overwritten.
+  check or uncheck it, as on GitHub.
 - **Task progress in the list.** Issues with a task list show how many of
-  their tasks are done (for example 2/5).
+  their tasks are done.
 
 ## [0.1.1] — 2026-10-27
 
